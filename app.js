@@ -7,6 +7,26 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const state = { me: null, boards: [], board: null, shots: [], filter: 'todos', open: null, view: null };
 const urlCache = new Map(); // path -> {url, exp}
 
+// Confirmación dentro de la página: confirm()/prompt() nativos no aparecen en algunos navegadores integrados.
+// Con `fields` devuelve los valores escritos (o null); sin ellos, true/false.
+function ask(msg, okLabel = 'Sí', fields = []) {
+  return new Promise(resolve => {
+    const m = document.createElement('div');
+    m.className = 'modal';
+    m.innerHTML = `<form class="modal-box"><p></p>${fields.map(f => `<input required placeholder="${esc(f)}">`).join('')}
+      <div class="row"><button type="button" class="ghost" data-a="0">Cancelar</button><button type="submit"></button></div></form>`;
+    m.querySelector('p').textContent = msg;
+    m.querySelector('[type=submit]').textContent = okLabel;
+    const done = v => { m.remove(); document.removeEventListener('keydown', key, true); resolve(v); };
+    const key = e => { if (e.key === 'Escape') { e.stopPropagation(); done(fields.length ? null : false); } };
+    m.onclick = e => { if (e.target === m || e.target.dataset?.a === '0') done(fields.length ? null : false); };
+    m.querySelector('form').onsubmit = e => { e.preventDefault(); done(fields.length ? [...m.querySelectorAll('input')].map(i => i.value.trim()) : true); };
+    document.addEventListener('keydown', key, true);
+    document.body.appendChild(m);
+    (m.querySelector('input') || m.querySelector('[type=submit]')).focus();
+  });
+}
+
 function toast(msg, ms = 2500) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms);
@@ -67,8 +87,8 @@ async function loadBoards() {
 }
 $('#board-select').onchange = e => { state.board = state.boards.find(b => b.id === e.target.value); setHash(); loadShots(); };
 $('#new-board').onclick = async () => {
-  const ep = prompt('Episodio (número):'); if (!ep) return;
-  const part = prompt('Parte (número):'); if (!part) return;
+  const v = await ask('Nuevo tablero', 'Crear', ['Episodio (número)', 'Parte (número)']); if (!v) return;
+  const [ep, part] = v; if (!+ep || !+part) return toast('Episodio y parte deben ser números');
   const { data, error } = await sb.from('boards').insert({ episode: +ep, part: +part, title: `EP${+ep} · Parte ${+part}` }).select().single();
   if (error) return toast(error.message);
   location.hash = `b=${data.episode}-${data.part}`; loadBoards();
@@ -137,14 +157,14 @@ async function renderBoard() {
 }
 
 async function deleteShot(s) {
-  if (!confirm(`¿Eliminar el shot ${s.code} con sus ${s.renders.length} render(s) y comentarios?`)) return;
+  if (!await ask(`¿Eliminar el shot ${s.code} con sus ${s.renders.length} render(s) y comentarios?`)) return;
   const { error } = await sb.from('shots').delete().eq('id', s.id);
   if (error) return toast(error.message);
   toast(`Eliminado ${s.code}`); if (state.open?.id === s.id) closeShot(); loadShots();
 }
 
 async function deleteRender(s, r) {
-  if (!confirm(`¿Eliminar el render ${r.version} de ${s.code}?`)) return;
+  if (!await ask(`¿Eliminar el render ${r.version} de ${s.code}?`)) return;
   if (s.approved_render_id === r.id) await sb.from('shots').update({ approved_render_id: null }).eq('id', s.id);
   const { error } = await sb.from('renders').delete().eq('id', r.id);
   if (error) return toast(error.message);
@@ -154,7 +174,7 @@ async function deleteRender(s, r) {
 // La imagen (y renders/comentarios) de `src` pasan a `dst` como renders; `src` se elimina.
 async function mergeAsRender(src, dst) {
   if (!src || !src.sketch_path) return;
-  if (!confirm(`¿Usar la imagen de ${src.code} como render de ${dst.code}? (${src.code} desaparece del tablero)`)) return;
+  if (!await ask(`¿Usar la imagen de ${src.code} como render de ${dst.code}? (${src.code} desaparece del tablero)`)) return;
   try {
     let n = dst.renders.length;
     const { data: r, error } = await sb.from('renders').insert({
