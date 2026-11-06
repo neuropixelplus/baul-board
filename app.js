@@ -150,6 +150,7 @@ async function renderBoard() {
     el.innerHTML = `
       <button class="del" title="Eliminar (va a la papelera)">✕</button>
       <button class="use" title="Usar esta imagen como render de otro shot (elegir de la lista)">↪ render de…</button>
+      <button class="mv" title="Mover en la secuencia: elegir después de qué tarjeta va">⇅ Mover</button>
       <div class="pair">
         <div class="ph s" title="Arrastra el boceto sobre otra tarjeta para usarlo como render de esa">${s.sketch_path ? `<img loading="lazy" draggable="false" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">${(s.kind || 'shot') !== 'shot' ? KIND_LABEL[s.kind] : /_color$/.test(s.code) ? 'color' : 'boceto'}</span></div>
         <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}${imgTools(!!r)}</div>
@@ -162,7 +163,7 @@ async function renderBoard() {
         <div class="who">${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
       </div>`;
     wireTools(el.querySelector('.ph.r'), s, r?.id);
-    el.onclick = e => { if (e.target.closest('.kind, .tools')) return; if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); openShot(s); };
+    el.onclick = e => { if (e.target.closest('.kind, .tools')) return; if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); if (e.target.closest('.mv')) return pickTarget(s, 'move'); openShot(s); };
     el.querySelector('.kind').onchange = e => setKind(s, e.target.value);
     dropTarget(el, files => uploadRenders(s, files));
     // Desde la franja de abajo (código): reordenar. Desde el render: se mueve solo ese render.
@@ -314,17 +315,20 @@ const renderToCard = guard(async (src, rid) => {
 });
 
 // Elegir de una lista (sin arrastrar) el shot del que esta imagen es render; útil cuando el destino está lejos.
-function pickTarget(src) {
+// mode 'move': elegir después de qué tarjeta va `src` en la secuencia (sin arrastrar).
+function pickTarget(src, mode = 'render') {
+  const move = mode === 'move';
   const m = document.createElement('div'); m.className = 'modal';
-  m.innerHTML = `<div class="modal-box pick"><div class="row"><b>¿De qué shot es render ${esc(src.code)}?</b><span class="grow"></span><button class="ghost small" data-close>Cancelar</button></div>
+  m.innerHTML = `<div class="modal-box pick"><div class="row"><b>${move ? `¿Después de cuál va ${esc(src.code)}?` : `¿De qué shot es render ${esc(src.code)}?`}</b><span class="grow"></span>${move ? '<button class="ghost small" data-first>Al principio</button>' : ''}<button class="ghost small" data-close>Cancelar</button></div>
     <input placeholder="Filtrar por código, título o personaje"><div class="pick-grid"></div></div>`;
   const grid = m.querySelector('.pick-grid'), input = m.querySelector('input');
-  const opts = state.shots.filter(s => s.id !== src.id && (s.kind || 'shot') === 'shot');
+  const opts = state.shots.filter(s => s.id !== src.id && (move || (s.kind || 'shot') === 'shot'));
   const draw = async () => {
     const q = input.value.trim().toLowerCase();
     const list = opts.filter(s => !q || [s.code, s.title, ...s.characters.map(c => c.name)].join(' ').toLowerCase().includes(q));
-    const url = await signedUrls(list.map(s => s.sketch_path));
-    grid.innerHTML = list.map(s => `<button class="ghost" data-id="${s.id}">${s.sketch_path ? `<img src="${url(s.sketch_path)}" alt="">` : ''}<span>${esc(s.code)}${s.renders.length ? ` · ${s.renders.length} render` : ''}</span></button>`).join('')
+    const pic = s => (move && latestRender(s)?.path) || s.sketch_path;
+    const url = await signedUrls(list.map(pic));
+    grid.innerHTML = list.map(s => `<button class="ghost" data-id="${s.id}">${pic(s) ? `<img src="${url(pic(s))}" alt="">` : ''}<span>${esc(s.code)}${s.renders.length ? ` · ${s.renders.length} render` : ''}</span></button>`).join('')
       || '<p class="muted">Nada coincide.</p>';
   };
   const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
@@ -332,8 +336,9 @@ function pickTarget(src) {
   input.oninput = draw;
   m.onclick = e => {
     if (e.target === m || e.target.dataset.close !== undefined) return close();
+    if (e.target.dataset.first !== undefined) { close(); return reorder(src.id, opts[0].id, false); }
     const id = e.target.closest('[data-id]')?.dataset.id; if (!id) return;
-    close(); mergeAsRender(src, state.shots.find(s => s.id === id));
+    close(); move ? reorder(src.id, id, true) : mergeAsRender(src, state.shots.find(s => s.id === id));
   };
   document.addEventListener('keydown', onKey, true);
   document.body.appendChild(m); draw(); input.focus();
