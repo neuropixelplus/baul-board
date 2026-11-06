@@ -143,3 +143,13 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .card.drag-render .ph.r, .card.drag-sketch .ph.s { outline: 2px solid var(--accent); outline-offset: -2px; }
 .card.ins-before { box-shadow: -8px 0 0 -2px var(--accent); }
 .card.ins-after { box-shadow: 8px 0 0 -2px var(--accent); }
+.card.ins-before.v { box-shadow: 0 -8px 0 -2px var(--accent); }
+.card.ins-after.v { box-shadow: 0 8px 0 -2px var(--accent); }
+/* botones sobre la imagen (render en la tarjeta; boceto/render en el detalle) */
+.tools { position: absolute; bottom: 6px; right: 6px; z-index: 2; display: flex; gap: 4px; opacity: 0; transition: opacity .15s; }
+.ph:hover .tools, figure:hover > .tools { opacity: 1; }
+@media (hover: none) { .tools { opacity: 1; } }
+.tools button, .tools label { background: #000c; color: #fff; border: 0; border-radius: 13px; height: 26px; padding: 0 10px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; cursor: pointer; }
+.tools button:hover, .tools label:hover { background: var(--accent); color: #111; }
+.compare figure { position: relative; }
+.compare figure > .tools { bottom: 10px; right: 10px; }

@@ -152,7 +152,7 @@ async function renderBoard() {
       <button class="use" title="Usar esta imagen como render de otro shot (elegir de la lista)">↪ render de…</button>
       <div class="pair">
         <div class="ph s" title="Arrastra el boceto sobre otra tarjeta para usarlo como render de esa">${s.sketch_path ? `<img loading="lazy" draggable="false" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">${(s.kind || 'shot') !== 'shot' ? KIND_LABEL[s.kind] : /_color$/.test(s.code) ? 'color' : 'boceto'}</span></div>
-        <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}</div>
+        <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}${imgTools(!!r)}</div>
       </div>
       <div class="meta">
         <div class="row1"><span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
@@ -161,7 +161,8 @@ async function renderBoard() {
         ${s.title ? `<div class="muted">${esc(s.title)}</div>` : ''}
         <div class="who">${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
       </div>`;
-    el.onclick = e => { if (e.target.closest('.kind')) return; if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); openShot(s); };
+    wireTools(el.querySelector('.ph.r'), s, r?.id);
+    el.onclick = e => { if (e.target.closest('.kind, .tools')) return; if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); openShot(s); };
     el.querySelector('.kind').onchange = e => setKind(s, e.target.value);
     dropTarget(el, files => uploadRenders(s, files));
     // Desde la franja de abajo (código): reordenar. Desde el render: se mueve solo ese render.
@@ -176,12 +177,15 @@ async function renderBoard() {
       e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging', 'drag-' + from);
     });
     el.addEventListener('dragend', () => el.classList.remove('dragging', 'drag-order', 'drag-render', 'drag-sketch'));
-    const side = e => { const b = el.getBoundingClientRect(); return e.clientX > b.left + b.width / 2 ? 'after' : 'before'; };
-    const clear = () => el.classList.remove('dragover', 'ins-before', 'ins-after');
+    // En una sola columna se decide por arriba/abajo; con varias, por izquierda/derecha.
+    const side = e => { const b = el.getBoundingClientRect();
+      return (oneColumn() ? e.clientY > b.top + b.height / 2 : e.clientX > b.left + b.width / 2) ? 'after' : 'before'; };
+    const clear = () => el.classList.remove('dragover', 'ins-before', 'ins-after', 'v');
     el.addEventListener('dragover', e => {
       if (!isInternal(e)) return;
       e.preventDefault(); e.stopPropagation(); clear();
       el.classList.add(e.dataTransfer.types.includes(T_ORDER) ? 'ins-' + side(e) : 'dragover');
+      el.classList.toggle('v', oneColumn());
     });
     el.addEventListener('dragleave', clear);
     el.addEventListener('drop', e => {
@@ -478,6 +482,17 @@ document.addEventListener('paste', async e => {
   else if (target) uploadRenders(target, files); else addShots(files);
 });
 
+// Botones sobre una imagen: editar en Photoshop y reemplazar desde el disco (sin imagen: subir una).
+const imgTools = has => `<div class="tools">${has ? '<button class="t-ps" title="Editar en Photoshop: al guardar vuelve sola aquí">✎ Editar</button>' : ''}<label class="t-rep" title="${has ? 'Reemplazar por otra imagen del disco (o mouse encima + Ctrl+V)' : 'Subir render desde el disco'}">${has ? '⟳ Reemplazar' : '+ Render'}<input type="file" accept="image/*" hidden></label></div>`;
+function wireTools(box, s, which) {
+  const t = box?.querySelector('.tools'); if (!t) return;
+  t.onclick = e => e.stopPropagation();
+  t.querySelector('.t-ps')?.addEventListener('click', () => editInPhotoshop(s, which));
+  t.querySelector('input').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    which ? replaceImage(s, which, f) : uploadRenders(s, [f]); };
+}
+const oneColumn = () => getComputedStyle($('#board')).gridTemplateColumns.split(' ').length === 1;
+
 // Reemplaza el boceto (`which` = 'sketch') o un render (id) por otra imagen. El archivo viejo queda en Storage (Deshacer).
 const replaceImage = guard(async (s, which, file) => {
   const r = which === 'sketch' ? null : s.renders.find(x => x.id === which);
@@ -550,7 +565,7 @@ async function renderViewer() {
   $('#view-tabs').onclick = e => { const v = e.target.dataset?.v; if (v) { state.view = v; renderViewer(); } };
   const cmp = $('#compare');
   const sketch = s.sketch_path ? url(s.sketch_path) : '';
-  const fig = (src, cap, t = '') => `<figure data-t="${t}" title="${t ? 'Mouse encima + Ctrl+V = reemplazar esta imagen' : ''}"><figcaption>${cap}</figcaption>${src ? `<img src="${src}" alt="">` : '<div class="muted">—</div>'}</figure>`;
+  const fig = (src, cap, t = '') => `<figure data-t="${t}" title="${t ? 'Mouse encima + Ctrl+V = reemplazar esta imagen' : ''}"><figcaption>${cap}</figcaption>${src ? `<img src="${src}" alt="">` : '<div class="muted">—</div>'}${t ? imgTools(true) : ''}</figure>`;
   const r = s.renders.find(x => x.id === state.view);
   const last = latestRender(s);
   let meta = '';
@@ -572,12 +587,8 @@ async function renderViewer() {
   delBtn.hidden = !r; delBtn.onclick = () => deleteRender(s, r);
   $('#out-render').hidden = !r; $('#out-render').onclick = () => { closeShot(); renderToCard(s, r.id); };
   $('#swap-render').hidden = !r || !s.sketch_path; $('#swap-render').onclick = () => swapSketch(s, r);
-  // Reemplazar / Photoshop actúan sobre el render visible o, si no hay, sobre el boceto.
-  const which = r ? r.id : s.sketch_path ? 'sketch' : null;
-  $('#rep-label').hidden = $('#ps-edit').hidden = !which;
-  $('#rep-label').firstChild.textContent = r ? `⟳ Reemplazar ${r.version}` : '⟳ Reemplazar boceto';
-  $('#rep-file').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) replaceImage(s, which, f); };
-  $('#ps-edit').onclick = () => editInPhotoshop(s, which);
+  // Editar / Reemplazar van encima de cada imagen (imgTools).
+  cmp.querySelectorAll('figure[data-t]').forEach(f => f.dataset.t && wireTools(f, s, f.dataset.t));
   cmp.querySelectorAll('figure > img').forEach(img => img.onclick = () => {
     const lb = document.createElement('div'); lb.className = 'lightbox'; lb.innerHTML = `<img src="${img.src}">`;
     lb.onclick = () => lb.remove(); document.body.appendChild(lb);
