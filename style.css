@@ -37,6 +37,13 @@ textarea { width: 100%; resize: vertical; }
 
 .card { background: var(--card); border-radius: 10px; overflow: hidden; cursor: pointer; border: 2px solid transparent; transition: border-color .15s; }
 .card:hover { border-color: var(--line); }
+.card { position: relative; }
+.card.dragging { opacity: .4; }
+.card .del { position: absolute; top: 6px; right: 6px; z-index: 2; background: #000b; color: #fff; border-radius: 50%; width: 26px; height: 26px; padding: 0; font-size: 13px; opacity: 0; transition: opacity .15s; }
+.card:hover .del { opacity: 1; }
+.card .del:hover { background: var(--cambios); }
+@media (hover: none) { .card .del { opacity: 1; } }
+button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .card.dragover { border-color: var(--accent); }
 .card .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: #111; }
 .card .pair .ph { aspect-ratio: 16/9; background: #18181a; display: grid; place-items: center; color: var(--muted); font-size: 12px; position: relative; }

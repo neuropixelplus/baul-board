@@ -101,8 +101,10 @@ async function renderBoard() {
     const r = latestRender(s);
     const open = s.comments.filter(c => !c.resolved).length;
     const el = document.createElement('article');
-    el.className = 'card'; el.dataset.id = s.id;
+    el.className = 'card'; el.dataset.id = s.id; el.draggable = true;
+    el.title = 'Arrastra esta tarjeta sobre otra para usar su imagen como render de esa';
     el.innerHTML = `
+      <button class="del" title="Eliminar shot">✕</button>
       <div class="pair">
         <div class="ph">${s.sketch_path ? `<img loading="lazy" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">boceto</span></div>
         <div class="ph">${r ? `<img loading="lazy" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}</div>
@@ -113,10 +115,62 @@ async function renderBoard() {
         ${s.title ? `<div class="muted">${esc(s.title)}</div>` : ''}
         <div class="who">${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
       </div>`;
-    el.onclick = () => openShot(s);
+    el.onclick = e => { if (e.target.closest('.del')) return deleteShot(s); openShot(s); };
     dropTarget(el, files => uploadRender(s, files[0]));
+    // Tarjeta sobre tarjeta: la imagen de la arrastrada pasa a ser render de la otra.
+    el.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-baul-shot', s.id); e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging'); });
+    el.addEventListener('dragend', () => el.classList.remove('dragging'));
+    el.addEventListener('dragover', e => {
+      if (!e.dataTransfer.types.includes('application/x-baul-shot')) return;
+      e.preventDefault(); el.classList.add('dragover');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('dragover'));
+    el.addEventListener('drop', e => {
+      const id = e.dataTransfer.getData('application/x-baul-shot');
+      el.classList.remove('dragover');
+      if (!id || id === s.id) return;
+      e.preventDefault(); e.stopPropagation();
+      mergeAsRender(state.shots.find(x => x.id === id), s);
+    });
     board.appendChild(el);
   }
+}
+
+async function deleteShot(s) {
+  if (!confirm(`¿Eliminar el shot ${s.code} con sus ${s.renders.length} render(s) y comentarios?`)) return;
+  const { error } = await sb.from('shots').delete().eq('id', s.id);
+  if (error) return toast(error.message);
+  toast(`Eliminado ${s.code}`); if (state.open?.id === s.id) closeShot(); loadShots();
+}
+
+async function deleteRender(s, r) {
+  if (!confirm(`¿Eliminar el render ${r.version} de ${s.code}?`)) return;
+  if (s.approved_render_id === r.id) await sb.from('shots').update({ approved_render_id: null }).eq('id', s.id);
+  const { error } = await sb.from('renders').delete().eq('id', r.id);
+  if (error) return toast(error.message);
+  toast(`Render ${r.version} eliminado`); state.view = null; loadShots();
+}
+
+// La imagen (y renders/comentarios) de `src` pasan a `dst` como renders; `src` se elimina.
+async function mergeAsRender(src, dst) {
+  if (!src || !src.sketch_path) return;
+  if (!confirm(`¿Usar la imagen de ${src.code} como render de ${dst.code}? (${src.code} desaparece del tablero)`)) return;
+  try {
+    let n = dst.renders.length;
+    const { data: r, error } = await sb.from('renders').insert({
+      shot_id: dst.id, version: `v${++n}`, path: src.sketch_path, source: `PureRef ${src.code}`,
+      created_by: state.me.name || state.me.email, note: src.notes }).select().single();
+    if (error) throw error;
+    for (const old of src.renders) {
+      const { error: e2 } = await sb.from('renders').update({ shot_id: dst.id, version: `v${++n}` }).eq('id', old.id);
+      if (e2) throw e2;
+    }
+    if (src.comments.length) await sb.from('comments').update({ shot_id: dst.id }).eq('shot_id', src.id);
+    const { error: e3 } = await sb.from('shots').delete().eq('id', src.id); if (e3) throw e3;
+    if (dst.status === 'pendiente') await sb.from('shots').update({ status: 'generado' }).eq('id', dst.id);
+    toast(`${src.code} ahora es render ${r.version} de ${dst.code}`);
+    loadShots();
+  } catch (e) { toast(e.message, 5000); }
 }
 $('#filters').onclick = e => {
   const f = e.target.dataset?.f; if (!f) return;
@@ -220,6 +274,8 @@ async function renderViewer() {
     meta = [r.source, r.created_by, new Date(r.created_at).toLocaleString('es')].filter(Boolean).join(' · ');
   } else { cmp.className = 'compare single'; cmp.innerHTML = fig(sketch, 'Boceto · sin render todavía'); }
   $('#render-meta').textContent = meta;
+  const delBtn = $('#del-render');
+  delBtn.hidden = !r; delBtn.onclick = () => deleteRender(s, r);
   cmp.querySelectorAll('figure > img').forEach(img => img.onclick = () => {
     const lb = document.createElement('div'); lb.className = 'lightbox'; lb.innerHTML = `<img src="${img.src}">`;
     lb.onclick = () => lb.remove(); document.body.appendChild(lb);
