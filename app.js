@@ -1,10 +1,12 @@
-// Baúl Board — frontend sin build. Config en config.js (URL + anon key).
+// NP+ RefBoards — frontend sin build. Config en config.js (URL + anon key).
 const sb = supabase.createClient(window.BAUL_CONFIG.url, window.BAUL_CONFIG.anonKey);
 const BUCKET = 'baul';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const state = { me: null, boards: [], board: null, shots: [], filter: 'todos', open: null, view: null };
+const state = { me: null, boards: [], board: null, shots: [], filter: 'todos', kind: 'todos', open: null, view: null };
+const KIND_LABEL = { todos: 'Todo', shot: 'Shots', bg: 'BGs', asset: 'Assets', sheet: 'Sheets' };
+const KIND_ONE = { shot: 'Shot', bg: 'BG', asset: 'Asset', sheet: 'Sheet' };
 const urlCache = new Map(); // path -> {url, exp}
 
 // Confirmación dentro de la página: confirm()/prompt() nativos no aparecen en algunos navegadores integrados.
@@ -113,7 +115,12 @@ async function loadShots() {
 const latestRender = s => s.renders.find(r => r.id === s.approved_render_id) || s.renders.at(-1);
 
 async function renderBoard() {
-  const shots = state.shots.filter(s => state.filter === 'todos' || s.status === state.filter);
+  const shots = state.shots.filter(s => (state.filter === 'todos' || s.status === state.filter)
+    && (state.kind === 'todos' || (s.kind || 'shot') === state.kind));
+  for (const b of $('#kinds').querySelectorAll('button')) {
+    const n = b.dataset.k === 'todos' ? state.shots.length : state.shots.filter(s => (s.kind || 'shot') === b.dataset.k).length;
+    b.textContent = `${KIND_LABEL[b.dataset.k]} ${n}`;
+  }
   const url = await signedUrls(shots.flatMap(s => [s.sketch_path, latestRender(s)?.path]));
   const board = $('#board');
   board.querySelectorAll('.card').forEach(c => c.remove());
@@ -126,16 +133,18 @@ async function renderBoard() {
     el.innerHTML = `
       <button class="del" title="Eliminar shot">✕</button>
       <div class="pair">
-        <div class="ph">${s.sketch_path ? `<img loading="lazy" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">boceto</span></div>
+        <div class="ph">${s.sketch_path ? `<img loading="lazy" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">${(s.kind || 'shot') === 'shot' ? 'boceto' : KIND_LABEL[s.kind]}</span></div>
         <div class="ph">${r ? `<img loading="lazy" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}</div>
       </div>
       <div class="meta">
-        <div class="row1"><span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span><span class="grow"></span>
+        <div class="row1"><span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
+          <select class="kind" title="Tipo">${Object.entries(KIND_ONE).map(([k, l]) => `<option value="${k}" ${k === (s.kind || 'shot') ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="grow"></span>
           <span class="muted small">${s.renders.length} render${s.renders.length === 1 ? '' : 's'}${open ? ` · 💬 ${open}` : ''}</span></div>
         ${s.title ? `<div class="muted">${esc(s.title)}</div>` : ''}
         <div class="who">${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
       </div>`;
-    el.onclick = e => { if (e.target.closest('.del')) return deleteShot(s); openShot(s); };
+    el.onclick = e => { if (e.target.closest('.kind')) return; if (e.target.closest('.del')) return deleteShot(s); openShot(s); };
+    el.querySelector('.kind').onchange = e => setKind(s, e.target.value);
     dropTarget(el, files => uploadRender(s, files[0]));
     // Tarjeta sobre tarjeta: la imagen de la arrastrada pasa a ser render de la otra.
     el.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-baul-shot', s.id); e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging'); });
@@ -192,6 +201,16 @@ async function mergeAsRender(src, dst) {
     loadShots();
   } catch (e) { toast(e.message, 5000); }
 }
+async function setKind(s, kind) {
+  const { error } = await sb.from('shots').update({ kind, updated_at: new Date().toISOString() }).eq('id', s.id);
+  if (error) return toast(error.message);
+  s.kind = kind; toast(`${s.code} → ${KIND_ONE[kind]}`); renderBoard();
+}
+$('#kinds').onclick = e => {
+  const k = e.target.dataset?.k; if (!k) return;
+  state.kind = k; $('#kinds').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
+  renderBoard();
+};
 $('#filters').onclick = e => {
   const f = e.target.dataset?.f; if (!f) return;
   state.filter = f; $('#filters').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.f === f));
@@ -242,6 +261,7 @@ async function openShot(s, keepView = false) {
   if (changed || !keepView) {
     $('#d-code').value = s.code; $('#d-title').value = s.title ?? '';
     $('#d-notes').value = s.notes ?? ''; $('#d-prompt').value = s.prompt ?? '';
+    $('#d-kind').value = s.kind || 'shot';
     renderChars();
   }
   $('#d-status').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.s === s.status));
@@ -319,6 +339,7 @@ $('#d-status').onclick = async e => {
 };
 for (const [sel, key] of [['#d-title', 'title'], ['#d-notes', 'notes'], ['#d-prompt', 'prompt']])
   $(sel).onchange = e => patchShot({ [key]: e.target.value || null }).then(renderBoard);
+$('#d-kind').onchange = e => setKind(state.open, e.target.value);
 $('#d-code').onchange = e => {
   const v = e.target.value.trim(); if (!v) return (e.target.value = state.open.code);
   patchShot({ code: v }).then(() => { setHash(state.open); renderBoard(); });

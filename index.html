@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Baúl Board</title>
-<link rel="stylesheet" href="style.css?v=202611061608">
+<title>NP+ RefBoards</title>
+<link rel="stylesheet" href="style.css?v=202611061613">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=202611061608"></script>
+<script src="config.js?v=202611061613"></script>
 </head>
 <body>
 <div id="login" class="login" hidden>
   <div class="login-box">
-    <h1>Baúl Board</h1>
+    <h1>NP+ RefBoards</h1>
     <p>El Baúl de Darwin · revisión de shots</p>
     <form id="login-form">
       <input id="login-email" type="email" placeholder="tu correo" required autocomplete="email">
@@ -23,7 +23,7 @@
 
 <div id="app" hidden>
   <header class="top">
-    <strong class="brand">Baúl Board</strong>
+    <strong class="brand">NP+ RefBoards</strong>
     <select id="board-select" aria-label="Tablero"></select>
     <button id="new-board" class="ghost" title="Nuevo episodio/parte">+ Tablero</button>
     <div class="filters" id="filters">
@@ -32,6 +32,13 @@
       <button data-f="generado">Generado</button>
       <button data-f="cambios">Cambios</button>
       <button data-f="aprobado">Aprobado</button>
+    </div>
+    <div class="filters" id="kinds">
+      <button data-k="todos" class="on">Todo</button>
+      <button data-k="shot">Shots</button>
+      <button data-k="bg">BGs</button>
+      <button data-k="asset">Assets</button>
+      <button data-k="sheet">Sheets</button>
     </div>
     <span class="grow"></span>
     <label class="zoom">Tamaño <input id="zoom" type="range" min="220" max="640" value="360"></label>
@@ -48,6 +55,7 @@
   <div class="detail-head">
     <input id="d-code" class="d-code" aria-label="Código del shot">
     <input id="d-title" class="d-title" placeholder="título / descripción corta">
+    <select id="d-kind" aria-label="Tipo"><option value="shot">Shot</option><option value="bg">BG</option><option value="asset">Asset</option><option value="sheet">Character sheet</option></select>
     <span class="grow"></span>
     <div class="status-btns" id="d-status">
       <button data-s="pendiente">Pendiente</button>
@@ -89,6 +97,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611061608"></script>
+<script src="app.js?v=202611061613"></script>
 </body>
 </html>
