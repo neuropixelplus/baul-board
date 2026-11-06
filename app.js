@@ -245,6 +245,21 @@ const mergeAsRender = guard(async (src, dst) => {
     sb.from('shots').update({ status: dst.status }).eq('id', dst.id))));
 });
 
+// Invierte boceto y render (el dibujo quedó como render del color). Un "_color" deja de serlo: pierde el sufijo.
+const swapSketch = guard(async (s, r) => {
+  const plain = s.code.replace(/_color$/, '');
+  const fields = { sketch_path: r.path, updated_at: now() };
+  if (plain !== s.code && !state.shots.some(x => x.code === plain)) {
+    const { data: taken } = await sb.from('shots').select('id').eq('board_id', state.board.id).eq('code', plain).maybeSingle();
+    if (!taken) fields.code = plain;
+  }
+  if (/^COLOR sin asignar/.test(s.title || '')) fields.title = null;
+  await run(sb.from('shots').update(fields).eq('id', s.id),
+    sb.from('renders').update({ path: s.sketch_path, source: `${r.source || ''} (invertido)`.trim() }).eq('id', r.id));
+  if (fields.code) { s.code = fields.code; setHash(s); }
+  toast(`Invertido: el boceto de ${fields.code || s.code} ahora es el dibujo y el color es render ${r.version}`, 6000);
+});
+
 // Orden de la secuencia: deja `id` antes o después de `targetId`. Si no hay hueco en `sort`, renumera el tablero.
 const reorder = guard(async (id, targetId, after) => {
   const list = state.shots.filter(x => x.id !== id);
@@ -526,6 +541,7 @@ async function renderViewer() {
   const delBtn = $('#del-render');
   delBtn.hidden = !r; delBtn.onclick = () => deleteRender(s, r);
   $('#out-render').hidden = !r; $('#out-render').onclick = () => { closeShot(); renderToCard(s, r.id); };
+  $('#swap-render').hidden = !r || !s.sketch_path; $('#swap-render').onclick = () => swapSketch(s, r);
   cmp.querySelectorAll('figure > img').forEach(img => img.onclick = () => {
     const lb = document.createElement('div'); lb.className = 'lightbox'; lb.innerHTML = `<img src="${img.src}">`;
     lb.onclick = () => lb.remove(); document.body.appendChild(lb);

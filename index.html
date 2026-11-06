@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NP+ RefBoards</title>
-<link rel="stylesheet" href="style.css?v=202611062200">
+<link rel="stylesheet" href="style.css?v=202611062230">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=202611062200"></script>
+<script src="config.js?v=202611062230"></script>
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -78,6 +78,7 @@
         <label class="btn small ghost">+ Frames<input id="up-frames" type="file" accept="image/*" multiple hidden></label>
         <span class="grow"></span>
         <span id="render-meta" class="muted"></span>
+        <button id="swap-render" class="ghost small" hidden title="Cambiar de lugar boceto y render">⇄ Invertir</button>
         <button id="out-render" class="ghost small" hidden title="Quitar este render del shot y dejarlo como tarjeta propia">⇱ Sacar a tarjeta</button>
         <button id="del-render" class="ghost small danger" hidden title="Eliminar este render">✕ Eliminar render</button>
       </div>
@@ -99,6 +100,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611062200"></script>
+<script src="app.js?v=202611062230"></script>
 </body>
 </html>
