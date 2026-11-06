@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NP+ RefBoards</title>
-<link rel="stylesheet" href="style.css?v=202611062100">
+<link rel="stylesheet" href="style.css?v=202611062200">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=202611062100"></script>
+<script src="config.js?v=202611062200"></script>
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -33,8 +33,8 @@
       <button data-f="cambios">Cambios</button>
       <button data-f="aprobado">Aprobado</button>
     </div>
-    <div class="filters" id="kinds">
-      <button data-k="todos" class="on">Todo</button>
+    <div class="filters" id="kinds" title="Prende uno o varios tipos; los demás se ocultan">
+      <button data-k="todos" class="on" title="Mostrar todos los tipos">Todo</button>
       <button data-k="shot">Shots</button>
       <button data-k="bg">BGs</button>
       <button data-k="asset">Assets</button>
@@ -78,6 +78,7 @@
         <label class="btn small ghost">+ Frames<input id="up-frames" type="file" accept="image/*" multiple hidden></label>
         <span class="grow"></span>
         <span id="render-meta" class="muted"></span>
+        <button id="out-render" class="ghost small" hidden title="Quitar este render del shot y dejarlo como tarjeta propia">⇱ Sacar a tarjeta</button>
         <button id="del-render" class="ghost small danger" hidden title="Eliminar este render">✕ Eliminar render</button>
       </div>
     </section>
@@ -98,6 +99,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611062100"></script>
+<script src="app.js?v=202611062200"></script>
 </body>
 </html>

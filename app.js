@@ -4,7 +4,7 @@ const BUCKET = 'baul';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const state = { me: null, boards: [], board: null, shots: [], filter: 'todos', kind: 'todos', open: null, view: null };
+const state = { me: null, boards: [], board: null, shots: [], filter: 'todos', kinds: new Set(), open: null, view: null };
 const KIND_LABEL = { todos: 'Todo', shot: 'Shots', bg: 'BGs', asset: 'Assets', sheet: 'Sheets' };
 const KIND_ONE = { shot: 'Shot', bg: 'BG', asset: 'Asset', sheet: 'Sheet' };
 const urlCache = new Map(); // path -> {url, exp}
@@ -134,7 +134,7 @@ const latestRender = s => s.renders.find(r => r.id === s.approved_render_id) || 
 
 async function renderBoard() {
   const shots = state.shots.filter(s => (state.filter === 'todos' || s.status === state.filter)
-    && (state.kind === 'todos' || (s.kind || 'shot') === state.kind));
+    && (!state.kinds.size || state.kinds.has(s.kind || 'shot')));
   for (const b of $('#kinds').querySelectorAll('button')) {
     const n = b.dataset.k === 'todos' ? state.shots.length : state.shots.filter(s => (s.kind || 'shot') === b.dataset.k).length;
     b.textContent = `${KIND_LABEL[b.dataset.k]} ${n}`;
@@ -225,6 +225,7 @@ const deleteRender = guard(async (s, r) => {
 const mergeAsRender = guard(async (src, dst) => {
   if (!src?.sketch_path || !dst) return;
   if (/_color$/.test(dst.code) && !/_color$/.test(src.code)) [src, dst] = [dst, src];
+  if ((src.kind || 'shot') !== 'shot' && !await ask(`${src.code} está marcado como ${KIND_ONE[src.kind]}. ¿Usarlo igual como render de ${dst.code}?`, 'Sí, usarlo')) return;
   let n = dst.nextV;
   const { data: r, error } = await sb.from('renders').insert({
     shot_id: dst.id, version: `v${n++}`, path: src.sketch_path, source: `PureRef ${src.code}`,
@@ -359,11 +360,21 @@ async function setKind(s, kind) {
   if (error) return toast(error.message);
   Object.assign(s, fields); toast(`${s.code} → ${KIND_ONE[kind]}`); renderBoard();
 }
+// Tipos: cada botón se prende/apaga (p.ej. solo Shots = omitir BGs, assets y sheets). Ninguno prendido = Todo.
+function setKinds(kinds) {
+  state.kinds = new Set(kinds);
+  $('#kinds').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === 'todos' ? !state.kinds.size : state.kinds.has(b.dataset.k)));
+  try { localStorage.setItem('kinds', JSON.stringify([...state.kinds])); } catch {}
+  renderBoard();
+}
 $('#kinds').onclick = e => {
   const k = e.target.dataset?.k; if (!k) return;
-  state.kind = k; $('#kinds').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === k));
-  renderBoard();
+  if (k === 'todos') return setKinds([]);
+  const next = new Set(state.kinds); next.has(k) ? next.delete(k) : next.add(k);
+  setKinds(next.size === 4 ? [] : next);
 };
+try { const saved = JSON.parse(localStorage.getItem('kinds') || '[]'); state.kinds = new Set(saved);
+  $('#kinds').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.k === 'todos' ? !state.kinds.size : state.kinds.has(b.dataset.k))); } catch {}
 $('#filters').onclick = e => {
   const f = e.target.dataset?.f; if (!f) return;
   state.filter = f; $('#filters').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.f === f));
@@ -514,6 +525,7 @@ async function renderViewer() {
   $('#render-meta').textContent = meta;
   const delBtn = $('#del-render');
   delBtn.hidden = !r; delBtn.onclick = () => deleteRender(s, r);
+  $('#out-render').hidden = !r; $('#out-render').onclick = () => { closeShot(); renderToCard(s, r.id); };
   cmp.querySelectorAll('figure > img').forEach(img => img.onclick = () => {
     const lb = document.createElement('div'); lb.className = 'lightbox'; lb.innerHTML = `<img src="${img.src}">`;
     lb.onclick = () => lb.remove(); document.body.appendChild(lb);
