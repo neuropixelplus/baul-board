@@ -469,11 +469,41 @@ document.addEventListener('paste', async e => {
   if (!snap.files.length && !snap.html) return;
   const target = !$('#detail').hidden ? state.open
     : state.shots.find(s => s.id === document.querySelector('.card:hover')?.dataset.id);
+  // En el detalle, con el mouse sobre el boceto o un render: se reemplaza esa imagen.
+  const over = !$('#detail').hidden && document.querySelector('#compare figure:hover')?.dataset.t;
   e.preventDefault();
   const files = named(await imagesFrom(snap));
   if (!files.length) return;
-  if (target) uploadRenders(target, files); else addShots(files);
+  if (over) replaceImage(target, over, files[0]);
+  else if (target) uploadRenders(target, files); else addShots(files);
 });
+
+// Reemplaza el boceto (`which` = 'sketch') o un render (id) por otra imagen. El archivo viejo queda en Storage (Deshacer).
+const replaceImage = guard(async (s, which, file) => {
+  const r = which === 'sketch' ? null : s.renders.find(x => x.id === which);
+  if (!r && which !== 'sketch') return;
+  const path = await uploadFile(file, `${basePath(state.board, s.code)}/${r ? 'render_' + r.version : 'sketch'}_${stamp()}${ext(file)}`);
+  const q = (p) => r ? sb.from('renders').update({ path: p }).eq('id', r.id) : sb.from('shots').update({ sketch_path: p, updated_at: now() }).eq('id', s.id);
+  const old = r ? r.path : s.sketch_path;
+  await run(q(path));
+  toast(`${r ? 'Render ' + r.version : 'Boceto'} de ${s.code} reemplazado`, 8000, guard(() => run(q(old))));
+});
+
+// Abre la imagen en Photoshop con el ayudante local (ps-helper.mjs); al guardar allá, vuelve sola al tablero.
+async function editInPhotoshop(s, which) {
+  const r = which === 'sketch' ? null : s.renders.find(x => x.id === which);
+  const path = r ? r.path : s.sketch_path;
+  const url = (await signedUrls([path]))(path);
+  try {
+    const res = await fetch('http://127.0.0.1:47811/edit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, table: r ? 'renders' : 'shots', id: r ? r.id : s.id, base: basePath(state.board, s.code),
+        prefix: r ? 'render_' + r.version : 'sketch', label: `${s.code}_${r ? r.version : 'boceto'}`, ext: path.match(/\.\w+$/)?.[0] }) });
+    const j = await res.json(); if (!res.ok) throw new Error(j.error);
+    toast('Abierto en Photoshop. Cada vez que guardes (Ctrl+S) se actualiza aquí.', 6000);
+  } catch (e) {
+    toast(e.message === 'Failed to fetch' ? 'El ayudante de Photoshop no está abierto: doble clic en "Editar con Photoshop.cmd" (carpeta baul-board).' : e.message, 8000);
+  }
+}
 
 // ---------- detalle ----------
 async function openShot(s, keepView = false) {
@@ -520,11 +550,11 @@ async function renderViewer() {
   $('#view-tabs').onclick = e => { const v = e.target.dataset?.v; if (v) { state.view = v; renderViewer(); } };
   const cmp = $('#compare');
   const sketch = s.sketch_path ? url(s.sketch_path) : '';
-  const fig = (src, cap) => `<figure><figcaption>${cap}</figcaption>${src ? `<img src="${src}" alt="">` : '<div class="muted">—</div>'}</figure>`;
+  const fig = (src, cap, t = '') => `<figure data-t="${t}" title="${t ? 'Mouse encima + Ctrl+V = reemplazar esta imagen' : ''}"><figcaption>${cap}</figcaption>${src ? `<img src="${src}" alt="">` : '<div class="muted">—</div>'}</figure>`;
   const r = s.renders.find(x => x.id === state.view);
   const last = latestRender(s);
   let meta = '';
-  if (state.view === 'sketch') { cmp.className = 'compare single'; cmp.innerHTML = fig(sketch, 'Boceto'); }
+  if (state.view === 'sketch') { cmp.className = 'compare single'; cmp.innerHTML = fig(sketch, 'Boceto', 'sketch'); }
   else if (state.view?.startsWith?.('f')) { cmp.className = 'compare single'; cmp.innerHTML = fig(url(frames[+state.view.slice(1)]), `Frame ${+state.view.slice(1) + 2}`); }
   else if (state.view === 'wipe' && last) {
     cmp.className = 'compare single';
@@ -534,14 +564,20 @@ async function renderViewer() {
     set(.5); w.onmousemove = e => { const b = w.getBoundingClientRect(); set((e.clientX - b.left) / b.width); };
   } else if (r) {
     cmp.className = 'compare';
-    cmp.innerHTML = fig(sketch, 'Boceto') + fig(url(r.path), `Render ${esc(r.version)}${r.id === s.approved_render_id ? ' · aprobado' : ''}`);
+    cmp.innerHTML = fig(sketch, 'Boceto', 'sketch') + fig(url(r.path), `Render ${esc(r.version)}${r.id === s.approved_render_id ? ' · aprobado' : ''}`, r.id);
     meta = [r.source, r.created_by, new Date(r.created_at).toLocaleString('es')].filter(Boolean).join(' · ');
-  } else { cmp.className = 'compare single'; cmp.innerHTML = fig(sketch, 'Boceto · sin render todavía'); }
+  } else { cmp.className = 'compare single'; cmp.innerHTML = fig(sketch, 'Boceto · sin render todavía', 'sketch'); }
   $('#render-meta').textContent = meta;
   const delBtn = $('#del-render');
   delBtn.hidden = !r; delBtn.onclick = () => deleteRender(s, r);
   $('#out-render').hidden = !r; $('#out-render').onclick = () => { closeShot(); renderToCard(s, r.id); };
   $('#swap-render').hidden = !r || !s.sketch_path; $('#swap-render').onclick = () => swapSketch(s, r);
+  // Reemplazar / Photoshop actúan sobre el render visible o, si no hay, sobre el boceto.
+  const which = r ? r.id : s.sketch_path ? 'sketch' : null;
+  $('#rep-label').hidden = $('#ps-edit').hidden = !which;
+  $('#rep-label').firstChild.textContent = r ? `⟳ Reemplazar ${r.version}` : '⟳ Reemplazar boceto';
+  $('#rep-file').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) replaceImage(s, which, f); };
+  $('#ps-edit').onclick = () => editInPhotoshop(s, which);
   cmp.querySelectorAll('figure > img').forEach(img => img.onclick = () => {
     const lb = document.createElement('div'); lb.className = 'lightbox'; lb.innerHTML = `<img src="${img.src}">`;
     lb.onclick = () => lb.remove(); document.body.appendChild(lb);

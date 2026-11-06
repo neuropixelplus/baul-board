@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NP+ RefBoards</title>
-<link rel="stylesheet" href="style.css?v=202611062230">
+<link rel="stylesheet" href="style.css?v=202611062300">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=202611062230"></script>
+<script src="config.js?v=202611062300"></script>
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -76,6 +76,8 @@
         <label class="btn small">Subir render<input id="up-render" type="file" accept="image/*" hidden></label>
         <label class="btn small ghost">Cambiar boceto<input id="up-sketch" type="file" accept="image/*" hidden></label>
         <label class="btn small ghost">+ Frames<input id="up-frames" type="file" accept="image/*" multiple hidden></label>
+        <label id="rep-label" class="btn small ghost" hidden title="Cambiar esta imagen por otra del disco (o mouse encima + Ctrl+V)">⟳ Reemplazar<input id="rep-file" type="file" accept="image/*" hidden></label>
+        <button id="ps-edit" class="ghost small" hidden title="Abrir en Photoshop; al guardar vuelve sola aquí">✎ Photoshop</button>
         <span class="grow"></span>
         <span id="render-meta" class="muted"></span>
         <button id="swap-render" class="ghost small" hidden title="Cambiar de lugar boceto y render">⇄ Invertir</button>
@@ -100,6 +102,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611062230"></script>
+<script src="app.js?v=202611062300"></script>
 </body>
 </html>
