@@ -489,20 +489,20 @@ const replaceImage = guard(async (s, which, file) => {
   toast(`${r ? 'Render ' + r.version : 'Boceto'} de ${s.code} reemplazado`, 8000, guard(() => run(q(old))));
 });
 
-// Abre la imagen en Photoshop con el ayudante local (ps-helper.mjs); al guardar allá, vuelve sola al tablero.
+// Pide abrir la imagen en Photoshop: el ayudante de tu PC (ps-helper.mjs) toma el pedido; al guardar allá, vuelve sola.
 async function editInPhotoshop(s, which) {
   const r = which === 'sketch' ? null : s.renders.find(x => x.id === which);
-  const path = r ? r.path : s.sketch_path;
-  const url = (await signedUrls([path]))(path);
-  try {
-    const res = await fetch('http://127.0.0.1:47811/edit', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, table: r ? 'renders' : 'shots', id: r ? r.id : s.id, base: basePath(state.board, s.code),
-        prefix: r ? 'render_' + r.version : 'sketch', label: `${s.code}_${r ? r.version : 'boceto'}`, ext: path.match(/\.\w+$/)?.[0] }) });
-    const j = await res.json(); if (!res.ok) throw new Error(j.error);
-    toast('Abierto en Photoshop. Cada vez que guardes (Ctrl+S) se actualiza aquí.', 6000);
-  } catch (e) {
-    toast(e.message === 'Failed to fetch' ? 'El ayudante de Photoshop no está abierto: doble clic en "Editar con Photoshop.cmd" (carpeta baul-board).' : e.message, 8000);
-  }
+  const { data, error } = await sb.from('ps_requests').insert({
+    target: r ? 'renders' : 'shots', row_id: r ? r.id : s.id, path: r ? r.path : s.sketch_path,
+    base: basePath(state.board, s.code), prefix: r ? 'render_' + r.version : 'sketch',
+    label: `${s.code}_${r ? r.version : 'boceto'}`, requested_by: state.me.email }).select().single();
+  if (error) return toast(error.message, 5000);
+  toast('Abriendo en Photoshop… Cada vez que guardes (Ctrl+S) se actualiza aquí.', 6000);
+  // Si en unos segundos nadie lo tomó, el ayudante no está abierto.
+  setTimeout(async () => {
+    const { data: q } = await sb.from('ps_requests').select('picked_at').eq('id', data.id).single();
+    if (!q?.picked_at) toast('El ayudante de Photoshop no está abierto en tu PC: doble clic en "Editar con Photoshop.cmd" (carpeta baul-board).', 9000);
+  }, 6000);
 }
 
 // ---------- detalle ----------
