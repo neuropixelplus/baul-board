@@ -156,7 +156,7 @@ async function renderBoard() {
         <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}${imgTools(!!r)}</div>
       </div>
       <div class="meta">
-        <div class="row1"><span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
+        <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span><span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
           <select class="kind" title="Tipo">${Object.entries(KIND_ONE).map(([k, l]) => `<option value="${k}" ${k === (s.kind || 'shot') ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="grow"></span>
           <span class="muted small">${s.renders.length} render${s.renders.length === 1 ? '' : 's'}${open ? ` · 💬 ${open}` : ''}</span></div>
         ${s.title ? `<div class="muted">${esc(s.title)}</div>` : ''}
@@ -319,16 +319,25 @@ const renderToCard = guard(async (src, rid) => {
 function pickTarget(src, mode = 'render') {
   const move = mode === 'move';
   const m = document.createElement('div'); m.className = 'modal';
-  m.innerHTML = `<div class="modal-box pick"><div class="row"><b>${move ? `¿Después de cuál va ${esc(src.code)}?` : `¿De qué shot es render ${esc(src.code)}?`}</b><span class="grow"></span>${move ? '<button class="ghost small" data-first>Al principio</button>' : ''}<button class="ghost small" data-close>Cancelar</button></div>
-    <input placeholder="Filtrar por código, título o personaje"><div class="pick-grid"></div></div>`;
-  const grid = m.querySelector('.pick-grid'), input = m.querySelector('input');
+  // A la izquierda, grande, la imagen que se está asignando; a la derecha las opciones, con tamaño ajustable.
+  m.innerHTML = `<div class="modal-box pick"><div class="row"><b>${move ? `¿Después de cuál va ${esc(src.code)}?` : `¿De qué shot es render ${esc(src.code)}?`}</b><span class="grow"></span>
+      <label class="zoom">Tamaño <input type="range" class="pick-size" min="160" max="640" step="20"></label>
+      ${move ? '<button class="ghost small" data-first>Al principio</button>' : ''}<button class="ghost small" data-close>Cancelar</button></div>
+    <div class="pick-body"><figure class="pick-src"><img alt=""><figcaption>${esc(src.code)}</figcaption></figure>
+      <div class="pick-right"><input class="pick-q" placeholder="Filtrar por código, título o personaje"><div class="pick-grid"></div></div></div></div>`;
+  const grid = m.querySelector('.pick-grid'), input = m.querySelector('.pick-q'), size = m.querySelector('.pick-size');
+  let w = 300; try { w = +localStorage.getItem('pickSize') || 300; } catch {}
+  size.value = w; grid.style.setProperty('--pick-w', w + 'px');
+  size.oninput = () => { grid.style.setProperty('--pick-w', size.value + 'px'); try { localStorage.setItem('pickSize', size.value); } catch {} };
+  const srcPath = (move && latestRender(src)?.path) || src.sketch_path;
+  signedUrls([srcPath]).then(u => { m.querySelector('.pick-src img').src = u(srcPath); });
   const opts = state.shots.filter(s => s.id !== src.id && (move || (s.kind || 'shot') === 'shot'));
   const draw = async () => {
     const q = input.value.trim().toLowerCase();
     const list = opts.filter(s => !q || [s.code, s.title, ...s.characters.map(c => c.name)].join(' ').toLowerCase().includes(q));
     const pic = s => (move && latestRender(s)?.path) || s.sketch_path;
     const url = await signedUrls(list.map(pic));
-    grid.innerHTML = list.map(s => `<button class="ghost" data-id="${s.id}">${pic(s) ? `<img src="${url(pic(s))}" alt="">` : ''}<span>${esc(s.code)}${s.renders.length ? ` · ${s.renders.length} render` : ''}</span></button>`).join('')
+    grid.innerHTML = list.map(s => `<button class="ghost" data-id="${s.id}">${pic(s) ? `<img loading="lazy" src="${url(pic(s))}" alt="">` : ''}<span><b>${state.shots.indexOf(s) + 1}</b> · ${esc(s.code)}${s.renders.length ? ` · ${s.renders.length} render` : ''}${s.title ? ` · <span class="muted">${esc(s.title)}</span>` : ''}</span></button>`).join('')
       || '<p class="muted">Nada coincide.</p>';
   };
   const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };

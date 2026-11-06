@@ -131,13 +131,20 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .card:hover .use, .card:hover .mv { opacity: 1; }
 .card .use:hover, .card .mv:hover { background: var(--accent); color: #111; }
 @media (hover: none) { .card .use, .card .mv { opacity: 1; } }
-.modal-box.pick { max-width: 900px; width: 100%; max-height: 85vh; display: grid; gap: 10px; grid-template-rows: auto auto 1fr; }
-.modal-box.pick .row { justify-content: flex-start; align-items: center; }
-.pick-grid { overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.modal-box.pick { max-width: none; width: 96vw; height: 92vh; display: grid; gap: 10px; grid-template-rows: auto 1fr; }
+.modal-box.pick .row { justify-content: flex-start; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pick-body { display: grid; grid-template-columns: minmax(240px, 34%) 1fr; gap: 12px; min-height: 0; }
+.pick-src { margin: 0; display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.pick-src img { width: 100%; max-height: 100%; object-fit: contain; background: #111; border-radius: 6px; }
+.pick-src figcaption { color: var(--muted); font-size: 12px; }
+.pick-right { display: grid; grid-template-rows: auto 1fr; gap: 8px; min-height: 0; }
+.pick-right .pick-q { width: 100%; }
+.pick-grid { overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--pick-w, 300px), 1fr)); gap: 8px; align-content: start; }
 .pick-grid button { padding: 4px; display: grid; gap: 4px; text-align: left; font-size: 12px; }
 .pick-grid button:hover { border-color: var(--accent); }
-.pick-grid img { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 4px; pointer-events: none; }
+.pick-grid img { width: 100%; aspect-ratio: 16/9; object-fit: contain; background: #fff; border-radius: 4px; pointer-events: none; }
 .pick-grid span { pointer-events: none; }
+@media (max-width: 860px) { .pick-body { grid-template-columns: 1fr; grid-template-rows: 30vh 1fr; } }
 /* reordenar: se arrastra desde la franja del código */
 .card .meta { cursor: grab; }
 .card.drag-order { opacity: .4; }
@@ -154,3 +161,4 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .tools button:hover, .tools label:hover { background: var(--accent); color: #111; }
 .compare figure { position: relative; }
 .compare figure > .tools { bottom: 10px; right: 10px; }
+.card .seq { font-size: 11px; font-weight: 700; color: #111; background: var(--muted); border-radius: 4px; padding: 0 5px; }
