@@ -37,7 +37,8 @@ async function boot() {
   if (!session) return showLogin();
   const email = session.user.email.toLowerCase();
   const { data: m } = await sb.from('members').select('*').eq('email', email).maybeSingle();
-  if (!m) { showLogin(`${email} no tiene acceso todavía. Pídeselo a René.`); await sb.auth.signOut(); return; }
+  // Sin cerrar sesión: cuando lo agreguen a members, basta con recargar.
+  if (!m) { showLogin(`${email} entró, pero no tiene acceso todavía. Pídeselo a René y recarga la página.`); $('#login-form').hidden = true; return; }
   state.me = m;
   $('#me').textContent = m.name || email;
   $('#login').hidden = true; $('#app').hidden = false;
