@@ -149,8 +149,9 @@ async function renderBoard() {
     el.className = 'card'; el.dataset.id = s.id; el.draggable = true;
     el.innerHTML = `
       <button class="del" title="Eliminar (va a la papelera)">✕</button>
+      <button class="use" title="Usar esta imagen como render de otro shot (elegir de la lista)">↪ render de…</button>
       <div class="pair">
-        <div class="ph s" title="Arrastra el boceto sobre otra tarjeta para usarlo como render de esa">${s.sketch_path ? `<img loading="lazy" draggable="false" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">${(s.kind || 'shot') === 'shot' ? 'boceto' : KIND_LABEL[s.kind]}</span></div>
+        <div class="ph s" title="Arrastra el boceto sobre otra tarjeta para usarlo como render de esa">${s.sketch_path ? `<img loading="lazy" draggable="false" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">${(s.kind || 'shot') !== 'shot' ? KIND_LABEL[s.kind] : /_color$/.test(s.code) ? 'color' : 'boceto'}</span></div>
         <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}</div>
       </div>
       <div class="meta">
@@ -160,7 +161,7 @@ async function renderBoard() {
         ${s.title ? `<div class="muted">${esc(s.title)}</div>` : ''}
         <div class="who">${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
       </div>`;
-    el.onclick = e => { if (e.target.closest('.kind')) return; if (e.target.closest('.del')) return deleteShot(s); openShot(s); };
+    el.onclick = e => { if (e.target.closest('.kind')) return; if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); openShot(s); };
     el.querySelector('.kind').onchange = e => setKind(s, e.target.value);
     dropTarget(el, files => uploadRenders(s, files));
     // Desde el render: se mueve solo ese render. Desde el boceto: la tarjeta entera pasa a ser render de la otra.
@@ -264,6 +265,32 @@ const renderToCard = guard(async (src, rid) => {
     sb.from('renders').update({ deleted_at: null }).eq('id', r.id),
     sb.from('shots').update({ approved_render_id: src.approved_render_id }).eq('id', src.id))));
 });
+
+// Elegir de una lista (sin arrastrar) el shot del que esta imagen es render; útil cuando el destino está lejos.
+function pickTarget(src) {
+  const m = document.createElement('div'); m.className = 'modal';
+  m.innerHTML = `<div class="modal-box pick"><div class="row"><b>¿De qué shot es render ${esc(src.code)}?</b><span class="grow"></span><button class="ghost small" data-close>Cancelar</button></div>
+    <input placeholder="Filtrar por código, título o personaje"><div class="pick-grid"></div></div>`;
+  const grid = m.querySelector('.pick-grid'), input = m.querySelector('input');
+  const opts = state.shots.filter(s => s.id !== src.id && (s.kind || 'shot') === 'shot');
+  const draw = async () => {
+    const q = input.value.trim().toLowerCase();
+    const list = opts.filter(s => !q || [s.code, s.title, ...s.characters.map(c => c.name)].join(' ').toLowerCase().includes(q));
+    const url = await signedUrls(list.map(s => s.sketch_path));
+    grid.innerHTML = list.map(s => `<button class="ghost" data-id="${s.id}">${s.sketch_path ? `<img src="${url(s.sketch_path)}" alt="">` : ''}<span>${esc(s.code)}${s.renders.length ? ` · ${s.renders.length} render` : ''}</span></button>`).join('')
+      || '<p class="muted">Nada coincide.</p>';
+  };
+  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const close = () => { m.remove(); document.removeEventListener('keydown', onKey, true); };
+  input.oninput = draw;
+  m.onclick = e => {
+    if (e.target === m || e.target.dataset.close !== undefined) return close();
+    const id = e.target.closest('[data-id]')?.dataset.id; if (!id) return;
+    close(); mergeAsRender(src, state.shots.find(s => s.id === id));
+  };
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(m); draw(); input.focus();
+}
 
 // Papelera del tablero actual: shots y renders eliminados, con Restaurar.
 async function openTrash() {
