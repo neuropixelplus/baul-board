@@ -202,9 +202,11 @@ async function mergeAsRender(src, dst) {
   } catch (e) { toast(e.message, 5000); }
 }
 async function setKind(s, kind) {
-  const { error } = await sb.from('shots').update({ kind, updated_at: new Date().toISOString() }).eq('id', s.id);
+  const fields = { kind, updated_at: new Date().toISOString() };
+  if (kind !== 'shot' && /^COLOR sin asignar/.test(s.title || '')) fields.title = null; // ya está clasificada
+  const { error } = await sb.from('shots').update(fields).eq('id', s.id);
   if (error) return toast(error.message);
-  s.kind = kind; toast(`${s.code} → ${KIND_ONE[kind]}`); renderBoard();
+  Object.assign(s, fields); toast(`${s.code} → ${KIND_ONE[kind]}`); renderBoard();
 }
 $('#kinds').onclick = e => {
   const k = e.target.dataset?.k; if (!k) return;
