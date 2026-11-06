@@ -29,10 +29,23 @@ function ask(msg, okLabel = 'Sí', fields = []) {
   });
 }
 
-function toast(msg, ms = 2500) {
+// `undo`: función que deshace; el aviso muestra el botón "Deshacer" (y Ctrl+Z) mientras está visible.
+function toast(msg, ms = 2500, undo = null) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
-  clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), ms);
+  toast.undo = undo;
+  if (undo) {
+    const b = document.createElement('button'); b.className = 'small'; b.textContent = 'Deshacer';
+    b.onclick = () => { t.hidden = true; toast.undo = null; undo(); };
+    t.append(' ', b); ms = Math.max(ms, 8000);
+  }
+  clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; toast.undo = null; }, ms);
 }
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z' || !toast.undo) return;
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  e.preventDefault(); $('#toast').querySelector('button')?.click();
+});
+const now = () => new Date().toISOString();
 async function signedUrls(paths) {
   const now = Date.now();
   const need = [...new Set(paths.filter(p => p && !(urlCache.get(p)?.exp > now)))];
@@ -103,9 +116,14 @@ function setHash(shot) {
 async function loadShots() {
   if (!state.board) { $('#board').querySelectorAll('.card').forEach(c => c.remove()); return; }
   const { data, error } = await sb.from('shots')
-    .select('*, renders(*), comments(*)').eq('board_id', state.board.id).order('sort').order('code');
+    .select('*, renders(*), comments(*)').eq('board_id', state.board.id).is('deleted_at', null).order('sort').order('code');
   if (error) return toast(error.message);
-  for (const s of data) { s.renders.sort((a, b) => a.created_at.localeCompare(b.created_at)); s.comments.sort((a, b) => a.created_at.localeCompare(b.created_at)); }
+  for (const s of data) {
+    // nextV cuenta también los renders en la papelera, para no repetir versión al restaurar.
+    s.nextV = 1 + Math.max(0, ...s.renders.map(r => +r.version.replace(/\D/g, '') || 0));
+    s.renders = s.renders.filter(r => !r.deleted_at).sort((a, b) => a.created_at.localeCompare(b.created_at));
+    s.comments.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  }
   state.shots = data;
   await renderBoard();
   const want = new URLSearchParams(location.hash.slice(1)).get('s');
@@ -129,12 +147,11 @@ async function renderBoard() {
     const open = s.comments.filter(c => !c.resolved).length;
     const el = document.createElement('article');
     el.className = 'card'; el.dataset.id = s.id; el.draggable = true;
-    el.title = 'Arrastra esta tarjeta sobre otra para usar su imagen como render de esa';
     el.innerHTML = `
-      <button class="del" title="Eliminar shot">✕</button>
+      <button class="del" title="Eliminar (va a la papelera)">✕</button>
       <div class="pair">
-        <div class="ph">${s.sketch_path ? `<img loading="lazy" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">${(s.kind || 'shot') === 'shot' ? 'boceto' : KIND_LABEL[s.kind]}</span></div>
-        <div class="ph">${r ? `<img loading="lazy" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}</div>
+        <div class="ph s" title="Arrastra el boceto sobre otra tarjeta para usarlo como render de esa">${s.sketch_path ? `<img loading="lazy" draggable="false" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">${(s.kind || 'shot') === 'shot' ? 'boceto' : KIND_LABEL[s.kind]}</span></div>
+        <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}</div>
       </div>
       <div class="meta">
         <div class="row1"><span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
@@ -145,62 +162,142 @@ async function renderBoard() {
       </div>`;
     el.onclick = e => { if (e.target.closest('.kind')) return; if (e.target.closest('.del')) return deleteShot(s); openShot(s); };
     el.querySelector('.kind').onchange = e => setKind(s, e.target.value);
-    dropTarget(el, files => uploadRender(s, files[0]));
-    // Tarjeta sobre tarjeta: la imagen de la arrastrada pasa a ser render de la otra.
-    el.addEventListener('dragstart', e => { e.dataTransfer.setData('application/x-baul-shot', s.id); e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging'); });
-    el.addEventListener('dragend', () => el.classList.remove('dragging'));
+    dropTarget(el, files => uploadRenders(s, files));
+    // Desde el render: se mueve solo ese render. Desde el boceto: la tarjeta entera pasa a ser render de la otra.
+    let fromRender = false;
+    el.onpointerdown = e => (fromRender = !!(r && e.target.closest('.ph.r')));
+    el.addEventListener('dragstart', e => {
+      if (fromRender) e.dataTransfer.setData(T_RENDER, `${s.id}/${r.id}`);
+      else e.dataTransfer.setData(T_SHOT, s.id);
+      e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging', fromRender ? 'drag-r' : 'drag-s');
+    });
+    el.addEventListener('dragend', () => el.classList.remove('dragging', 'drag-r', 'drag-s'));
     el.addEventListener('dragover', e => {
-      if (!e.dataTransfer.types.includes('application/x-baul-shot')) return;
-      e.preventDefault(); el.classList.add('dragover');
+      if (!isInternal(e)) return;
+      e.preventDefault(); e.stopPropagation(); el.classList.add('dragover');
     });
     el.addEventListener('dragleave', () => el.classList.remove('dragover'));
     el.addEventListener('drop', e => {
-      const id = e.dataTransfer.getData('application/x-baul-shot');
-      el.classList.remove('dragover');
-      if (!id || id === s.id) return;
-      e.preventDefault(); e.stopPropagation();
-      mergeAsRender(state.shots.find(x => x.id === id), s);
+      if (!isInternal(e)) return;
+      e.preventDefault(); e.stopPropagation(); el.classList.remove('dragover');
+      const [srcId, rid] = (e.dataTransfer.getData(T_RENDER) || '').split('/');
+      if (rid) { if (srcId !== s.id) moveRender(state.shots.find(x => x.id === srcId), rid, s); return; }
+      const id = e.dataTransfer.getData(T_SHOT);
+      if (id && id !== s.id) mergeAsRender(state.shots.find(x => x.id === id), s);
     });
     board.appendChild(el);
   }
 }
 
-async function deleteShot(s) {
-  if (!await ask(`¿Eliminar el shot ${s.code} con sus ${s.renders.length} render(s) y comentarios?`)) return;
-  const { error } = await sb.from('shots').delete().eq('id', s.id);
-  if (error) return toast(error.message);
-  toast(`Eliminado ${s.code}`); if (state.open?.id === s.id) closeShot(); loadShots();
-}
+const T_SHOT = 'application/x-baul-shot', T_RENDER = 'application/x-baul-render';
+const isInternal = e => e.dataTransfer.types.includes(T_SHOT) || e.dataTransfer.types.includes(T_RENDER);
+const run = async (...qs) => { for (const q of qs) { const { error } = await q; if (error) throw error; } };
+const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message, 5000); } loadShots(); };
 
-async function deleteRender(s, r) {
-  if (!await ask(`¿Eliminar el render ${r.version} de ${s.code}?`)) return;
-  if (s.approved_render_id === r.id) await sb.from('shots').update({ approved_render_id: null }).eq('id', s.id);
-  const { error } = await sb.from('renders').delete().eq('id', r.id);
-  if (error) return toast(error.message);
-  toast(`Render ${r.version} eliminado`); state.view = null; loadShots();
-}
+// Eliminar = mandar a la papelera. Se deshace con el aviso, Ctrl+Z o desde la Papelera.
+const deleteShot = guard(async s => {
+  await run(sb.from('shots').update({ deleted_at: now() }).eq('id', s.id));
+  if (state.open?.id === s.id) closeShot();
+  toast(`${s.code} a la papelera`, 8000, guard(() => run(sb.from('shots').update({ deleted_at: null }).eq('id', s.id))));
+});
 
-// La imagen (y renders/comentarios) de `src` pasan a `dst` como renders; `src` se elimina.
-async function mergeAsRender(src, dst) {
-  if (!src || !src.sketch_path) return;
-  if (!await ask(`¿Usar la imagen de ${src.code} como render de ${dst.code}? (${src.code} desaparece del tablero)`)) return;
-  try {
-    let n = dst.renders.length;
-    const { data: r, error } = await sb.from('renders').insert({
-      shot_id: dst.id, version: `v${++n}`, path: src.sketch_path, source: `PureRef ${src.code}`,
-      created_by: state.me.name || state.me.email, note: src.notes }).select().single();
-    if (error) throw error;
-    for (const old of src.renders) {
-      const { error: e2 } = await sb.from('renders').update({ shot_id: dst.id, version: `v${++n}` }).eq('id', old.id);
-      if (e2) throw e2;
-    }
-    if (src.comments.length) await sb.from('comments').update({ shot_id: dst.id }).eq('shot_id', src.id);
-    const { error: e3 } = await sb.from('shots').delete().eq('id', src.id); if (e3) throw e3;
-    if (dst.status === 'pendiente') await sb.from('shots').update({ status: 'generado' }).eq('id', dst.id);
-    toast(`${src.code} ahora es render ${r.version} de ${dst.code}`);
-    loadShots();
-  } catch (e) { toast(e.message, 5000); }
+const deleteRender = guard(async (s, r) => {
+  const wasApproved = s.approved_render_id === r.id;
+  await run(sb.from('renders').update({ deleted_at: now() }).eq('id', r.id),
+    ...(wasApproved ? [sb.from('shots').update({ approved_render_id: null }).eq('id', s.id)] : []));
+  state.view = null;
+  toast(`Render ${r.version} de ${s.code} a la papelera`, 8000, guard(() => run(
+    sb.from('renders').update({ deleted_at: null }).eq('id', r.id),
+    ...(wasApproved ? [sb.from('shots').update({ approved_render_id: r.id }).eq('id', s.id)] : []))));
+});
+
+// La imagen (y renders/comentarios) de `src` pasan a `dst` como renders; `src` va a la papelera.
+const mergeAsRender = guard(async (src, dst) => {
+  if (!src?.sketch_path) return;
+  let n = dst.nextV;
+  const { data: r, error } = await sb.from('renders').insert({
+    shot_id: dst.id, version: `v${n++}`, path: src.sketch_path, source: `PureRef ${src.code}`,
+    created_by: state.me.name || state.me.email, note: src.notes }).select().single();
+  if (error) throw error;
+  const moved = src.renders.map(x => ({ id: x.id, version: x.version }));
+  const cids = src.comments.map(c => c.id);
+  await run(...src.renders.map(x => sb.from('renders').update({ shot_id: dst.id, version: `v${n++}` }).eq('id', x.id)),
+    ...(cids.length ? [sb.from('comments').update({ shot_id: dst.id }).in('id', cids)] : []),
+    sb.from('shots').update({ deleted_at: now() }).eq('id', src.id),
+    ...(dst.status === 'pendiente' ? [sb.from('shots').update({ status: 'generado' }).eq('id', dst.id)] : []));
+  toast(`${src.code} ahora es render ${r.version} de ${dst.code}`, 8000, guard(() => run(
+    sb.from('renders').delete().eq('id', r.id),
+    ...moved.map(x => sb.from('renders').update({ shot_id: src.id, version: x.version }).eq('id', x.id)),
+    ...(cids.length ? [sb.from('comments').update({ shot_id: src.id }).in('id', cids)] : []),
+    sb.from('shots').update({ deleted_at: null }).eq('id', src.id),
+    sb.from('shots').update({ status: dst.status }).eq('id', dst.id))));
+});
+
+// Mueve solo un render de `src` a `dst`.
+const moveRender = guard(async (src, rid, dst) => {
+  const r = src?.renders.find(x => x.id === rid); if (!r) return;
+  const version = `v${dst.nextV}`;
+  const srcFields = {};
+  if (src.approved_render_id === r.id) srcFields.approved_render_id = null;
+  if (src.renders.length === 1 && src.status !== 'pendiente') srcFields.status = 'pendiente';
+  await run(sb.from('renders').update({ shot_id: dst.id, version }).eq('id', r.id),
+    ...(Object.keys(srcFields).length ? [sb.from('shots').update(srcFields).eq('id', src.id)] : []),
+    ...(dst.status === 'pendiente' ? [sb.from('shots').update({ status: 'generado' }).eq('id', dst.id)] : []));
+  toast(`Render ${r.version} de ${src.code} → ${version} de ${dst.code}`, 8000, guard(() => run(
+    sb.from('renders').update({ shot_id: src.id, version: r.version }).eq('id', r.id),
+    sb.from('shots').update({ approved_render_id: src.approved_render_id, status: src.status }).eq('id', src.id),
+    sb.from('shots').update({ status: dst.status }).eq('id', dst.id))));
+});
+
+// Render soltado en un espacio vacío del tablero: sale como tarjeta propia (lo inverso de mergeAsRender).
+const renderToCard = guard(async (src, rid) => {
+  const r = src?.renders.find(x => x.id === rid); if (!r) return;
+  let code = `${src.code}_${r.version}`;
+  if (state.shots.some(x => x.code === code)) code += '_' + stamp().slice(9);
+  const { data: s, error } = await sb.from('shots').insert({ board_id: state.board.id, code, sort: src.sort + 1,
+    sketch_path: r.path, notes: `Sacado de ${src.code} (${r.version})` }).select().single();
+  if (error) throw error;
+  await run(sb.from('renders').update({ deleted_at: now() }).eq('id', r.id),
+    ...(src.approved_render_id === r.id ? [sb.from('shots').update({ approved_render_id: null }).eq('id', src.id)] : []));
+  toast(`Render ${r.version} de ${src.code} ahora es la tarjeta ${code}`, 8000, guard(() => run(
+    sb.from('shots').delete().eq('id', s.id),
+    sb.from('renders').update({ deleted_at: null }).eq('id', r.id),
+    sb.from('shots').update({ approved_render_id: src.approved_render_id }).eq('id', src.id))));
+});
+
+// Papelera del tablero actual: shots y renders eliminados, con Restaurar.
+async function openTrash() {
+  if (!state.board) return;
+  const [{ data: shots, error: e1 }, { data: rends, error: e2 }] = await Promise.all([
+    sb.from('shots').select('id, code, sketch_path, deleted_at').eq('board_id', state.board.id)
+      .not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+    sb.from('renders').select('id, version, path, deleted_at, shots!inner(code, board_id, deleted_at)').eq('shots.board_id', state.board.id)
+      .not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+  ]);
+  if (e1 || e2) return toast((e1 || e2).message, 5000);
+  const items = [
+    ...shots.map(s => ({ t: 'shots', id: s.id, path: s.sketch_path, label: s.code, at: s.deleted_at })),
+    ...rends.filter(r => !r.shots.deleted_at).map(r => ({ t: 'renders', id: r.id, path: r.path, label: `${r.shots.code} · render ${r.version}`, at: r.deleted_at })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
+  const url = await signedUrls(items.map(i => i.path));
+  const m = document.createElement('div'); m.className = 'modal';
+  m.innerHTML = `<div class="modal-box trash"><div class="row"><b>Papelera · EP${state.board.episode} Parte ${state.board.part}</b><span class="grow"></span><button class="ghost small" data-close>Cerrar</button></div>
+    ${items.map((i, k) => `<div class="trash-item"><img src="${url(i.path)}" alt=""><div><b>${esc(i.label)}</b><div class="muted small">${new Date(i.at).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' })}</div></div><button class="small" data-k="${k}">Restaurar</button></div>`).join('')
+      || '<p class="muted">Vacía.</p>'}</div>`;
+  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const close = () => { m.remove(); document.removeEventListener('keydown', onKey, true); };
+  m.onclick = async e => {
+    if (e.target === m || e.target.dataset.close !== undefined) return close();
+    const i = items[e.target.dataset.k]; if (!i) return;
+    const { error } = await sb.from(i.t).update({ deleted_at: null }).eq('id', i.id);
+    if (error) return toast(error.message, 5000);
+    e.target.closest('.trash-item').remove(); toast(`Restaurado ${i.label}`); loadShots();
+  };
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(m);
 }
+$('#trash').onclick = openTrash;
+
 async function setKind(s, kind) {
   const fields = { kind, updated_at: new Date().toISOString() };
   if (kind !== 'shot' && /^COLOR sin asignar/.test(s.title || '')) fields.title = null; // ya está clasificada
@@ -229,9 +326,10 @@ async function addShots(files) {
     sort += 10;
     try {
       const path = await uploadFile(f, `${basePath(state.board, code)}/sketch_${stamp()}${ext(f)}`);
-      const exist = state.shots.find(s => s.code === code);
+      // Puede existir en la papelera (el código es único por tablero): entonces vuelve con la imagen nueva.
+      const { data: exist } = await sb.from('shots').select('id').eq('board_id', state.board.id).eq('code', code).maybeSingle();
       const q = exist
-        ? sb.from('shots').update({ sketch_path: path, updated_at: new Date().toISOString() }).eq('id', exist.id)
+        ? sb.from('shots').update({ sketch_path: path, deleted_at: null, updated_at: now() }).eq('id', exist.id)
         : sb.from('shots').insert({ board_id: state.board.id, code, sort, sketch_path: path });
       const { error } = await q; if (error) throw error;
       toast(`Subido ${code}`);
@@ -240,18 +338,62 @@ async function addShots(files) {
   loadShots();
 }
 $('#add-shots').onchange = e => { addShots([...e.target.files]); e.target.value = ''; };
-dropTarget($('#board'), addShots, true);
+dropTarget($('#board'), addShots);
+// Render soltado fuera de las tarjetas: sale como tarjeta propia.
+$('#board').addEventListener('dragover', e => { if (e.dataTransfer.types.includes(T_RENDER)) e.preventDefault(); });
+$('#board').addEventListener('drop', e => {
+  const [srcId, rid] = (e.dataTransfer.getData(T_RENDER) || '').split('/'); if (!rid) return;
+  e.preventDefault(); renderToCard(state.shots.find(x => x.id === srcId), rid);
+});
 
-function dropTarget(el, onFiles, onlySelf = false) {
-  el.addEventListener('dragover', e => { if (!e.dataTransfer.types.includes('Files')) return; e.preventDefault(); e.stopPropagation(); el.classList.add('dragover'); });
+// Imágenes desde el explorador, otra pestaña del navegador o el portapapeles.
+// Hay que copiar los datos antes de cualquier await: el navegador los vacía al terminar el evento.
+const snapshot = dt => ({ files: [...(dt.files || [])], html: dt.getData('text/html'), uri: dt.getData('text/uri-list') });
+const hasImageData = dt => !isInternal({ dataTransfer: dt }) && ['Files', 'text/uri-list', 'text/html'].some(t => dt.types.includes(t));
+async function imagesFrom(snap) {
+  const files = snap.files.filter(f => f.type.startsWith('image/'));
+  if (files.length) return files;
+  let src = snap.html && new DOMParser().parseFromString(snap.html, 'text/html').querySelector('img')?.getAttribute('src');
+  if (!src) src = snap.uri.split(/\r?\n/).find(l => l && !l.startsWith('#'))?.trim();
+  if (!src) return [];
+  try {
+    const res = await fetch(src); if (!res.ok) throw new Error(res.status);
+    const blob = await res.blob(); if (!blob.type.startsWith('image/')) throw new Error(blob.type);
+    const e = blob.type.split('/')[1].replace('jpeg', 'jpg').replace(/\+.*/, '');
+    return [new File([blob], `web_${stamp()}.${e}`, { type: blob.type })];
+  } catch {
+    toast('Esa página no deja copiar la imagen así. Clic derecho en la imagen → Copiar imagen, y aquí Ctrl+V.', 7000);
+    return [];
+  }
+}
+// Nombres genéricos del portapapeles ("image.png") → código único, para no pisar otra tarjeta.
+const named = files => files.map((f, i) => /^(image|imagen|blob|unnamed|untitled)\b/i.test(f.name)
+  ? new File([f], `pegado_${stamp()}_${i + 1}${ext(f)}`, { type: f.type }) : f);
+
+function dropTarget(el, onFiles) {
+  el.addEventListener('dragover', e => { if (!hasImageData(e.dataTransfer)) return; e.preventDefault(); e.stopPropagation(); el.classList.add('dragover'); });
   el.addEventListener('dragleave', () => el.classList.remove('dragover'));
-  el.addEventListener('drop', e => {
+  el.addEventListener('drop', async e => {
     el.classList.remove('dragover');
-    const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('image/'));
-    if (!files.length) return;
-    e.preventDefault(); e.stopPropagation(); onFiles(files);
+    if (!hasImageData(e.dataTransfer)) return;
+    e.preventDefault(); e.stopPropagation();
+    const files = named(await imagesFrom(snapshot(e.dataTransfer)));
+    if (files.length) onFiles(files);
   });
 }
+
+// Ctrl+V: con un shot abierto → render de ese shot; con el mouse sobre una tarjeta → render de esa; si no → tarjetas nuevas.
+document.addEventListener('paste', async e => {
+  if ($('#app').hidden || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) || document.querySelector('.modal')) return;
+  const snap = snapshot(e.clipboardData);
+  if (!snap.files.length && !snap.html) return;
+  const target = !$('#detail').hidden ? state.open
+    : state.shots.find(s => s.id === document.querySelector('.card:hover')?.dataset.id);
+  e.preventDefault();
+  const files = named(await imagesFrom(snap));
+  if (!files.length) return;
+  if (target) uploadRenders(target, files); else addShots(files);
+});
 
 // ---------- detalle ----------
 async function openShot(s, keepView = false) {
@@ -401,19 +543,24 @@ $('#comment-form').onsubmit = async e => {
   $('#comment-text').value = ''; renderComments(); renderBoard();
 };
 
-async function uploadRender(s, file) {
-  if (!file) return;
+async function uploadRenders(s, files) {
+  if (!s || !files?.length) return;
   try {
-    const version = `v${s.renders.length + 1}`;
-    const path = await uploadFile(file, `${basePath(state.board, s.code)}/render_${version}_${stamp()}${ext(file)}`);
-    const { error } = await sb.from('renders').insert({ shot_id: s.id, version, path, source: file.name, created_by: state.me.name || state.me.email });
-    if (error) throw error;
-    await sb.from('shots').update({ status: 'generado', updated_at: new Date().toISOString() }).eq('id', s.id);
-    toast(`Render ${version} subido a ${s.code}`);
-    loadShots();
+    let n = s.nextV ?? s.renders.length + 1;
+    const done = [];
+    for (const file of files) {
+      const version = `v${n++}`;
+      const path = await uploadFile(file, `${basePath(state.board, s.code)}/render_${version}_${stamp()}${ext(file)}`);
+      const { error } = await sb.from('renders').insert({ shot_id: s.id, version, path, source: file.name, created_by: state.me.name || state.me.email });
+      if (error) throw error;
+      done.push(version);
+    }
+    await sb.from('shots').update({ status: 'generado', updated_at: now() }).eq('id', s.id);
+    toast(`Render ${done.join(', ')} subido a ${s.code}`);
   } catch (e) { toast(e.message, 5000); }
+  loadShots();
 }
-$('#up-render').onchange = e => { uploadRender(state.open, e.target.files[0]); e.target.value = ''; };
+$('#up-render').onchange = e => { uploadRenders(state.open, [...e.target.files]); e.target.value = ''; };
 $('#up-sketch').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
   const path = await uploadFile(f, `${basePath(state.board, state.open.code)}/sketch_${stamp()}${ext(f)}`);
@@ -425,7 +572,7 @@ $('#up-frames').onchange = async e => {
   for (const [i, f] of files.entries()) paths.push(await uploadFile(f, `${basePath(state.board, state.open.code)}/frame_${stamp()}_${i}${ext(f)}`));
   await patchShot({ extra_frames: [...(state.open.extra_frames || []), ...paths] }); loadShots();
 };
-dropTarget($('#compare'), files => uploadRender(state.open, files[0]));
+dropTarget($('#compare'), files => uploadRenders(state.open, files));
 
 // ---------- tiempo real ----------
 function subscribe() {
