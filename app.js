@@ -164,23 +164,31 @@ async function renderBoard() {
     el.onclick = e => { if (e.target.closest('.kind')) return; if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); openShot(s); };
     el.querySelector('.kind').onchange = e => setKind(s, e.target.value);
     dropTarget(el, files => uploadRenders(s, files));
-    // Desde el render: se mueve solo ese render. Desde el boceto: la tarjeta entera pasa a ser render de la otra.
-    let fromRender = false;
-    el.onpointerdown = e => (fromRender = !!(r && e.target.closest('.ph.r')));
+    // Desde la franja de abajo (código): reordenar. Desde el render: se mueve solo ese render.
+    // Desde el boceto: la tarjeta entera pasa a ser render de la otra.
+    let from = 'sketch';
+    el.onpointerdown = e => (from = e.target.closest('.meta') ? 'order' : r && e.target.closest('.ph.r') ? 'render' : 'sketch');
     el.addEventListener('dragstart', e => {
-      if (fromRender) e.dataTransfer.setData(T_RENDER, `${s.id}/${r.id}`);
+      if (e.target.closest?.('select')) return e.preventDefault();
+      if (from === 'order') e.dataTransfer.setData(T_ORDER, s.id);
+      else if (from === 'render') e.dataTransfer.setData(T_RENDER, `${s.id}/${r.id}`);
       else e.dataTransfer.setData(T_SHOT, s.id);
-      e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging', fromRender ? 'drag-r' : 'drag-s');
+      e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging', 'drag-' + from);
     });
-    el.addEventListener('dragend', () => el.classList.remove('dragging', 'drag-r', 'drag-s'));
+    el.addEventListener('dragend', () => el.classList.remove('dragging', 'drag-order', 'drag-render', 'drag-sketch'));
+    const side = e => { const b = el.getBoundingClientRect(); return e.clientX > b.left + b.width / 2 ? 'after' : 'before'; };
+    const clear = () => el.classList.remove('dragover', 'ins-before', 'ins-after');
     el.addEventListener('dragover', e => {
       if (!isInternal(e)) return;
-      e.preventDefault(); e.stopPropagation(); el.classList.add('dragover');
+      e.preventDefault(); e.stopPropagation(); clear();
+      el.classList.add(e.dataTransfer.types.includes(T_ORDER) ? 'ins-' + side(e) : 'dragover');
     });
-    el.addEventListener('dragleave', () => el.classList.remove('dragover'));
+    el.addEventListener('dragleave', clear);
     el.addEventListener('drop', e => {
       if (!isInternal(e)) return;
-      e.preventDefault(); e.stopPropagation(); el.classList.remove('dragover');
+      e.preventDefault(); e.stopPropagation(); clear();
+      const ord = e.dataTransfer.getData(T_ORDER);
+      if (ord) { if (ord !== s.id) reorder(ord, s.id, side(e) === 'after'); return; }
       const [srcId, rid] = (e.dataTransfer.getData(T_RENDER) || '').split('/');
       if (rid) { if (srcId !== s.id) moveRender(state.shots.find(x => x.id === srcId), rid, s); return; }
       const id = e.dataTransfer.getData(T_SHOT);
@@ -190,8 +198,8 @@ async function renderBoard() {
   }
 }
 
-const T_SHOT = 'application/x-baul-shot', T_RENDER = 'application/x-baul-render';
-const isInternal = e => e.dataTransfer.types.includes(T_SHOT) || e.dataTransfer.types.includes(T_RENDER);
+const T_SHOT = 'application/x-baul-shot', T_RENDER = 'application/x-baul-render', T_ORDER = 'application/x-baul-order';
+const isInternal = e => [T_SHOT, T_RENDER, T_ORDER].some(t => e.dataTransfer.types.includes(t));
 const run = async (...qs) => { for (const q of qs) { const { error } = await q; if (error) throw error; } };
 const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { toast(e.message, 5000); } loadShots(); };
 
@@ -213,8 +221,10 @@ const deleteRender = guard(async (s, r) => {
 });
 
 // La imagen (y renders/comentarios) de `src` pasan a `dst` como renders; `src` va a la papelera.
+// Boceto soltado sobre una imagen a color: se invierte, el color es el render del boceto.
 const mergeAsRender = guard(async (src, dst) => {
-  if (!src?.sketch_path) return;
+  if (!src?.sketch_path || !dst) return;
+  if (/_color$/.test(dst.code) && !/_color$/.test(src.code)) [src, dst] = [dst, src];
   let n = dst.nextV;
   const { data: r, error } = await sb.from('renders').insert({
     shot_id: dst.id, version: `v${n++}`, path: src.sketch_path, source: `PureRef ${src.code}`,
@@ -232,6 +242,23 @@ const mergeAsRender = guard(async (src, dst) => {
     ...(cids.length ? [sb.from('comments').update({ shot_id: src.id }).in('id', cids)] : []),
     sb.from('shots').update({ deleted_at: null }).eq('id', src.id),
     sb.from('shots').update({ status: dst.status }).eq('id', dst.id))));
+});
+
+// Orden de la secuencia: deja `id` antes o después de `targetId`. Si no hay hueco en `sort`, renumera el tablero.
+const reorder = guard(async (id, targetId, after) => {
+  const list = state.shots.filter(x => x.id !== id);
+  const i = list.findIndex(x => x.id === targetId) + (after ? 1 : 0);
+  const moving = state.shots.find(x => x.id === id);
+  list.splice(i, 0, moving);
+  const old = new Map(state.shots.map(x => [x.id, x.sort]));
+  const prev = list[i - 1]?.sort, next = list[i + 1]?.sort;
+  const changes = prev === undefined ? [[id, next - 10]] : next === undefined ? [[id, prev + 10]]
+    : next - prev > 1 ? [[id, Math.floor((prev + next) / 2)]]
+    : list.map((x, k) => [x.id, (k + 1) * 10]).filter(([xid, v]) => old.get(xid) !== v);
+  const apply = pairs => run(...pairs.map(([xid, v]) => sb.from('shots').update({ sort: v }).eq('id', xid)));
+  await apply(changes);
+  toast(`${moving.code} movida ${after ? 'después de' : 'antes de'} ${state.shots.find(x => x.id === targetId).code}`, 6000,
+    guard(() => apply(changes.map(([xid]) => [xid, old.get(xid)]))));
 });
 
 // Mueve solo un render de `src` a `dst`.

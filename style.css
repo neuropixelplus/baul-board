@@ -122,7 +122,6 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 
 /* arrastre: qué mitad de la tarjeta se mueve */
 .card .ph.r:has(img) { cursor: grab; }
-.card.drag-r .ph.r, .card.drag-s .ph.s { outline: 2px solid var(--accent); outline-offset: -2px; }
 .modal-box.trash { max-width: 560px; width: 100%; max-height: 80vh; overflow-y: auto; display: grid; gap: 8px; }
 .modal-box.trash .row { justify-content: flex-start; align-items: center; }
 .trash-item { display: grid; grid-template-columns: 120px 1fr auto; gap: 10px; align-items: center; background: var(--card); border-radius: 8px; padding: 6px; }
@@ -138,3 +137,9 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .pick-grid button:hover { border-color: var(--accent); }
 .pick-grid img { width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: 4px; pointer-events: none; }
 .pick-grid span { pointer-events: none; }
+/* reordenar: se arrastra desde la franja del código */
+.card .meta { cursor: grab; }
+.card.drag-order { opacity: .4; }
+.card.drag-render .ph.r, .card.drag-sketch .ph.s { outline: 2px solid var(--accent); outline-offset: -2px; }
+.card.ins-before { box-shadow: -8px 0 0 -2px var(--accent); }
+.card.ins-after { box-shadow: 8px 0 0 -2px var(--accent); }
