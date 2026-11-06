@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Baúl Board</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+</head>
+<body>
+<div id="login" class="login" hidden>
+  <div class="login-box">
+    <h1>Baúl Board</h1>
+    <p>El Baúl de Darwin · revisión de shots</p>
+    <form id="login-form">
+      <input id="login-email" type="email" placeholder="tu correo" required autocomplete="email">
+      <button>Enviarme el enlace</button>
+    </form>
+    <p id="login-msg" class="muted"></p>
+  </div>
+</div>
+
+<div id="app" hidden>
+  <header class="top">
+    <strong class="brand">Baúl Board</strong>
+    <select id="board-select" aria-label="Tablero"></select>
+    <button id="new-board" class="ghost" title="Nuevo episodio/parte">+ Tablero</button>
+    <div class="filters" id="filters">
+      <button data-f="todos" class="on">Todos</button>
+      <button data-f="pendiente">Pendiente</button>
+      <button data-f="generado">Generado</button>
+      <button data-f="cambios">Cambios</button>
+      <button data-f="aprobado">Aprobado</button>
+    </div>
+    <span class="grow"></span>
+    <label class="zoom">Tamaño <input id="zoom" type="range" min="220" max="640" value="360"></label>
+    <label class="btn">+ Shots<input id="add-shots" type="file" accept="image/*" multiple hidden></label>
+    <span id="me" class="muted"></span>
+    <button id="logout" class="ghost">Salir</button>
+  </header>
+  <main id="board" class="board">
+    <div class="drop-hint">Arrastra frames del storyboard aquí: un shot por imagen.</div>
+  </main>
+</div>
+
+<div id="detail" class="detail" hidden>
+  <div class="detail-head">
+    <input id="d-code" class="d-code" aria-label="Código del shot">
+    <input id="d-title" class="d-title" placeholder="título / descripción corta">
+    <span class="grow"></span>
+    <div class="status-btns" id="d-status">
+      <button data-s="pendiente">Pendiente</button>
+      <button data-s="generado">Generado</button>
+      <button data-s="cambios">Pedir cambios</button>
+      <button data-s="aprobado">Aprobar</button>
+    </div>
+    <button id="d-prev" class="ghost" title="Anterior (←)">‹</button>
+    <button id="d-next" class="ghost" title="Siguiente (→)">›</button>
+    <button id="d-close" class="ghost" title="Cerrar (Esc)">✕</button>
+  </div>
+  <div class="detail-body">
+    <section class="viewer">
+      <div class="view-tabs" id="view-tabs"></div>
+      <div class="compare" id="compare"></div>
+      <div class="view-actions">
+        <label class="btn small">Subir render<input id="up-render" type="file" accept="image/*" hidden></label>
+        <label class="btn small ghost">Cambiar boceto<input id="up-sketch" type="file" accept="image/*" hidden></label>
+        <label class="btn small ghost">+ Frames<input id="up-frames" type="file" accept="image/*" multiple hidden></label>
+        <span class="grow"></span>
+        <span id="render-meta" class="muted"></span>
+      </div>
+    </section>
+    <aside class="side">
+      <h3>Personajes <span class="muted">· quién es quién</span></h3>
+      <div id="chars"></div>
+      <button id="add-char" class="ghost small">+ Personaje</button>
+      <h3>Notas</h3>
+      <textarea id="d-notes" rows="4" placeholder="Acción, cámara, intención…"></textarea>
+      <details><summary>Prompt</summary><textarea id="d-prompt" rows="6"></textarea></details>
+      <h3>Comentarios</h3>
+      <div id="comments" class="comments"></div>
+      <form id="comment-form" class="comment-form">
+        <textarea id="comment-text" rows="2" placeholder="Comentar…" required></textarea>
+        <div class="row"><label class="muted small"><input id="comment-on-render" type="checkbox" checked> sobre el render visible</label><button>Enviar</button></div>
+      </form>
+    </aside>
+  </div>
+</div>
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>

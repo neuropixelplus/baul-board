@@ -1,0 +1,1 @@
+window.BAUL_CONFIG = {"url":"https://yzrouijgpgecfoxgtrfx.supabase.co","anonKey":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl6cm91aWpncGdlY2ZveGd0cmZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM5OTQ2NjcsImV4cCI6MjEwOTU3MDY2N30.h2CMl6Nhg2PEmyU8o-MEFd-QiWLG1yEz93jy6fegi8Y"};
