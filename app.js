@@ -153,7 +153,7 @@ async function renderBoard() {
       <button class="mv" title="Mover en la secuencia: elegir después de qué tarjeta va">⇅ Mover</button>
       <div class="pair">
         <div class="ph s" title="Arrastra el boceto sobre otra tarjeta para usarlo como render de esa">${s.sketch_path ? `<img loading="lazy" draggable="false" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">${(s.kind || 'shot') !== 'shot' ? KIND_LABEL[s.kind] : /_color$/.test(s.code) ? 'color' : 'boceto'}</span></div>
-        <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}${imgTools(!!r)}</div>
+        <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}${imgTools(!!r, true)}</div>
       </div>
       <div class="meta">
         <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span><span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
@@ -544,14 +544,53 @@ document.addEventListener('paste', async e => {
 });
 
 // Botones sobre una imagen: editar en Photoshop y reemplazar desde el disco (sin imagen: subir una).
-const imgTools = has => `<div class="tools">${has ? '<button class="t-ps" title="Editar en Photoshop: al guardar vuelve sola aquí">✎ Editar</button>' : ''}<label class="t-rep" title="${has ? 'Reemplazar por otra imagen del disco (o mouse encima + Ctrl+V)' : 'Subir render desde el disco'}">${has ? '⟳ Reemplazar' : '+ Render'}<input type="file" accept="image/*" hidden></label></div>`;
+const imgTools = (has, gen = false) => `<div class="tools">${gen ? '<button class="t-gen" title="Copiar la orden para generar este shot en Magnific (pegar en el chat del episodio)">✦ Magnific</button>' : ''}${has ? '<button class="t-ps" title="Editar en Photoshop: al guardar vuelve sola aquí">✎ Editar</button>' : ''}<label class="t-rep" title="${has ? 'Reemplazar por otra imagen del disco (o mouse encima + Ctrl+V)' : 'Subir render desde el disco'}">${has ? '⟳ Reemplazar' : '+ Render'}<input type="file" accept="image/*" hidden></label></div>`;
 function wireTools(box, s, which) {
   const t = box?.querySelector('.tools'); if (!t) return;
   t.onclick = e => e.stopPropagation();
   t.querySelector('.t-ps')?.addEventListener('click', () => editInPhotoshop(s, which));
+  t.querySelector('.t-gen')?.addEventListener('click', () => magnificOrder(s));
   t.querySelector('input').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     which ? replaceImage(s, which, f) : uploadRenders(s, [f]); };
 }
+// Orden para el chat de Claude del episodio (o uno nuevo): qué shot, dónde leerlo, sus vecinos y cómo devolver el render.
+function magnificOrder(s) {
+  const b = state.board, i = state.shots.indexOf(s);
+  const prev = state.shots[i - 1], next = state.shots[i + 1];
+  const cli = 'node C:/Claude_Ichi/baul-board/baul.mjs';
+  const last = latestRender(s);
+  const open = s.comments.filter(c => !c.resolved);
+  const text = [
+    `Genera en Magnific el shot ${s.code} de El Baúl de Darwin, EP${b.episode} Parte ${b.part} (posición ${i + 1} de ${state.shots.length} en la secuencia).`,
+    '',
+    `1. Lee el shot: ${cli} shot ${b.episode} ${b.part} ${s.code}  (boceto, personajes, notas, prompt y comentarios; baja las imágenes a cache/).`,
+    `2. Mira sus vecinos para que el escenario, la luz y la utilería sigan iguales:${prev ? ` antes ${prev.code}` : ''}${prev && next ? ',' : ''}${next ? ` después ${next.code}` : ''} (mismo comando; usa sus renders aprobados como referencia de escenario si existen).`,
+    s.characters.length ? `3. Personajes: ${s.characters.map(c => [c.name, c.where, c.action].filter(Boolean).join(' – ')).join('; ')}.` : '3. El shot no tiene personajes cargados: identifícalos en el boceto y agrégalos con add-shot --chars antes de generar.',
+    s.notes ? `   Notas: ${s.notes}` : '',
+    open.length ? `   Comentarios abiertos: ${open.map(c => `${c.author}: ${c.body}`).join(' | ')}` : '',
+    last ? `   Ya tiene ${s.renders.length} render(s); el último es ${last.version}${s.status === 'cambios' ? ' y pidieron cambios' : ''}.` : '',
+    '4. Sigue las reglas del proyecto (memoria de C:/Claude_Ichi: Seedream 5 Pro, sheets de personajes como referencia, el boceto no va como referencia: la composición va en el texto del prompt).',
+    `5. Cuando esté, súbelo: ${cli} render ${b.episode} ${b.part} ${s.code} <archivo> --source "Magnific <prod id>" --prompt <prompt.txt> --note "<crítica honesta>"`,
+    'Si este episodio aún no tiene chat, este es el chat nuevo: lee primero C:/Claude_Ichi/baul-board/README.md.',
+  ].filter(Boolean).join('\n');
+  const m = document.createElement('div'); m.className = 'modal';
+  m.innerHTML = `<div class="modal-box order"><div class="row"><b>Orden para Magnific · ${esc(s.code)}</b><span class="grow"></span><button class="ghost small" data-close>Cerrar</button></div>
+    <p class="muted small">Pégala en el chat de Claude de EP${b.episode} (o en uno nuevo si el episodio no tiene). Puedes editarla antes de copiar.</p>
+    <textarea rows="14"></textarea><div class="row"><button data-copy>Copiar orden</button></div></div>`;
+  const ta = m.querySelector('textarea'); ta.value = text;
+  const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const close = () => { m.remove(); document.removeEventListener('keydown', onKey, true); };
+  m.onclick = async e => {
+    if (e.target === m || e.target.dataset.close !== undefined) return close();
+    if (e.target.dataset.copy === undefined) return;
+    try { await navigator.clipboard.writeText(ta.value); } catch { ta.select(); document.execCommand('copy'); }
+    close(); toast('Orden copiada: pégala en el chat del episodio');
+  };
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(m);
+}
+$('#d-gen').onclick = () => state.open && magnificOrder(state.open);
+
 const oneColumn = () => getComputedStyle($('#board')).gridTemplateColumns.split(' ').length === 1;
 
 // Reemplaza el boceto (`which` = 'sketch') o un render (id) por otra imagen. El archivo viejo queda en Storage (Deshacer).

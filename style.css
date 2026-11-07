@@ -165,3 +165,6 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .pick-grid button { position: relative; }
 .pick-grid button.best { border-color: var(--accent); }
 .pick-grid .star { position: absolute; top: 8px; left: 8px; font-style: normal; font-size: 11px; font-weight: 700; background: var(--accent); color: #111; padding: 1px 6px; border-radius: 4px; pointer-events: none; }
+.modal-box.order { max-width: 760px; width: 100%; display: grid; gap: 8px; }
+.modal-box.order .row { justify-content: flex-start; align-items: center; }
+.modal-box.order textarea { font: 12px/1.5 ui-monospace, Consolas, monospace; }
