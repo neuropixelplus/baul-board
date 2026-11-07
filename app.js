@@ -566,7 +566,7 @@ function magnificOrder(s) {
     `1. Lee el shot: ${cli} shot ${b.episode} ${b.part} ${s.code}  (boceto, personajes, notas, prompt y comentarios; baja las imágenes a cache/).`,
     `2. Mira sus vecinos para que el escenario, la luz y la utilería sigan iguales:${prev ? ` antes ${prev.code}` : ''}${prev && next ? ',' : ''}${next ? ` después ${next.code}` : ''} (mismo comando; usa sus renders aprobados como referencia de escenario si existen).`,
     s.characters.length ? `3. Personajes: ${s.characters.map(c => [c.name, c.where, c.action].filter(Boolean).join(' – ')).join('; ')}.` : '3. El shot no tiene personajes cargados: identifícalos en el boceto y agrégalos con add-shot --chars antes de generar.',
-    s.notes ? `   Notas: ${s.notes}` : '',
+    s.notes && !/^PureRef:/.test(s.notes) ? `   Notas: ${s.notes}` : '',
     open.length ? `   Comentarios abiertos: ${open.map(c => `${c.author}: ${c.body}`).join(' | ')}` : '',
     last ? `   Ya tiene ${s.renders.length} render(s); el último es ${last.version}${s.status === 'cambios' ? ' y pidieron cambios' : ''}.` : '',
     '4. Sigue las reglas del proyecto (memoria de C:/Claude_Ichi: Seedream 5 Pro, sheets de personajes como referencia, el boceto no va como referencia: la composición va en el texto del prompt).',
