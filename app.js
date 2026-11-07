@@ -332,12 +332,17 @@ function pickTarget(src, mode = 'render') {
   const srcPath = (move && latestRender(src)?.path) || src.sketch_path;
   signedUrls([srcPath]).then(u => { m.querySelector('.pick-src img').src = u(srcPath); });
   const opts = state.shots.filter(s => s.id !== src.id && (move || (s.kind || 'shot') === 'shot'));
+  // Sugeridos (solo al asignar render): parecido de composición + cercanía en el orden original de PureRef.
+  const score = new Map();
+  if (!move) suggest(src, opts, score).finally(() => { score.done = true; draw(); });
   const draw = async () => {
     const q = input.value.trim().toLowerCase();
-    const list = opts.filter(s => !q || [s.code, s.title, ...s.characters.map(c => c.name)].join(' ').toLowerCase().includes(q));
+    let list = opts.filter(s => !q || [s.code, s.title, ...s.characters.map(c => c.name)].join(' ').toLowerCase().includes(q));
+    if (score.size) list = [...list].sort((a, b) => (score.get(b.id) ?? -9) - (score.get(a.id) ?? -9));
+    const best = score.size ? new Set([...score].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => id)) : new Set();
     const pic = s => (move && latestRender(s)?.path) || s.sketch_path;
     const url = await signedUrls(list.map(pic));
-    grid.innerHTML = list.map(s => `<button class="ghost" data-id="${s.id}">${pic(s) ? `<img loading="lazy" src="${url(pic(s))}" alt="">` : ''}<span><b>${state.shots.indexOf(s) + 1}</b> · ${esc(s.code)}${s.renders.length ? ` · ${s.renders.length} render` : ''}${s.title ? ` · <span class="muted">${esc(s.title)}</span>` : ''}</span></button>`).join('')
+    grid.innerHTML = (!move && !score.done ? '<p class="muted small" style="grid-column:1/-1">Buscando bocetos parecidos…</p>' : '') + list.map(s => `<button class="ghost ${best.has(s.id) ? 'best' : ''}" data-id="${s.id}">${best.has(s.id) ? '<i class="star">★ parecido</i>' : ''}${pic(s) ? `<img loading="lazy" src="${url(pic(s))}" alt="">` : ''}<span><b>${state.shots.indexOf(s) + 1}</b> · ${esc(s.code)}${s.renders.length ? ` · ${s.renders.length} render` : ''}${s.title ? ` · <span class="muted">${esc(s.title)}</span>` : ''}</span></button>`).join('')
       || '<p class="muted">Nada coincide.</p>';
   };
   const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
@@ -351,6 +356,48 @@ function pickTarget(src, mode = 'render') {
   };
   document.addEventListener('keydown', onKey, true);
   document.body.appendChild(m); draw(); input.focus();
+}
+
+// Huella de composición: mapa de bordes 64×36 difuminado y normalizado (sirve para boceto y para render).
+const featCache = new Map();
+async function composition(path) {
+  if (!featCache.has(path)) featCache.set(path, (async () => {
+    const img = new Image(); img.crossOrigin = 'anonymous'; img.src = (await signedUrls([path]))(path); await img.decode();
+    const W = 64, H = 36, w2 = W * 2, h2 = H * 2, c = new OffscreenCanvas(w2, h2), g = c.getContext('2d');
+    g.drawImage(img, 0, 0, w2, h2);
+    const d = g.getImageData(0, 0, w2, h2).data, gray = new Float32Array(w2 * h2);
+    for (let i = 0; i < gray.length; i++) gray[i] = (d[i * 4] * .3 + d[i * 4 + 1] * .59 + d[i * 4 + 2] * .11) / 255;
+    const e = new Float32Array(W * H), p = (y, x) => gray[y * w2 + x];
+    for (let y = 1; y < h2 - 1; y++) for (let x = 1; x < w2 - 1; x++) {
+      const gx = p(y - 1, x + 1) + 2 * p(y, x + 1) + p(y + 1, x + 1) - p(y - 1, x - 1) - 2 * p(y, x - 1) - p(y + 1, x - 1);
+      const gy = p(y + 1, x - 1) + 2 * p(y + 1, x) + p(y + 1, x + 1) - p(y - 1, x - 1) - 2 * p(y - 1, x) - p(y - 1, x + 1);
+      e[(y >> 1) * W + (x >> 1)] += Math.hypot(gx, gy);
+    }
+    const b = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      let sum = 0, n = 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const yy = y + dy, xx = x + dx; if (yy >= 0 && yy < H && xx >= 0 && xx < W) { sum += e[yy * W + xx]; n++; }
+      }
+      b[y * W + x] = sum / n;
+    }
+    const mean = b.reduce((a, v) => a + v, 0) / b.length; let norm = 0;
+    for (let i = 0; i < b.length; i++) { b[i] -= mean; norm += b[i] * b[i]; }
+    norm = Math.sqrt(norm) || 1; for (let i = 0; i < b.length; i++) b[i] /= norm;
+    return b;
+  })().catch(() => null));
+  return featCache.get(path);
+}
+// Probado con los 14 pares ya asignados de la Parte 5: el boceto correcto sale 1º en 9 y entre los 5 primeros en 12.
+async function suggest(src, opts, score) {
+  const f0 = await composition(src.sketch_path); if (!f0) return;
+  const num = x => +(x?.match(/P\d+_(\d{3})/)?.[1] ?? NaN), n0 = num(src.code);
+  await Promise.all(opts.filter(o => o.sketch_path).map(async o => {
+    const f = await composition(o.sketch_path); if (!f) return;
+    let sim = 0; for (let i = 0; i < f.length; i++) sim += f[i] * f0[i];
+    const dist = Math.abs(num(o.code) - n0);
+    score.set(o.id, sim + (isNaN(dist) ? 0 : 0.5 * Math.exp(-dist / 3)));
+  }));
 }
 
 // Papelera del tablero actual: shots y renders eliminados, con Restaurar.
