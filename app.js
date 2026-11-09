@@ -670,7 +670,7 @@ async function renderViewer() {
   const last = latestRender(s);
   let meta = '';
   if (state.view === 'sketch') { cmp.className = 'compare single'; cmp.innerHTML = fig(sketch, 'Boceto', 'sketch'); }
-  else if (state.view?.startsWith?.('f')) { cmp.className = 'compare single'; cmp.innerHTML = fig(url(frames[+state.view.slice(1)]), `Frame ${+state.view.slice(1) + 2}`); }
+  else if (/^f\d+$/.test(state.view ?? '')) { cmp.className = 'compare single'; cmp.innerHTML = fig(url(frames[+state.view.slice(1)]), `Frame ${+state.view.slice(1) + 2}`); }
   else if (state.view === 'wipe' && last) {
     cmp.className = 'compare single';
     cmp.innerHTML = `<figure><figcaption>Cortina: boceto ← → ${esc(last.version)} (mueve el mouse)</figcaption><div class="wipe"><img src="${url(last.path)}" alt=""><img class="top" src="${sketch}" alt=""><div class="bar"></div></div></figure>`;
