@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NP+ RefBoards</title>
-<link rel="stylesheet" href="style.css?v=202611090200">
+<link rel="stylesheet" href="style.css?v=202611090300">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=202611090200"></script>
+<script src="config.js?v=202611090300"></script>
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -50,6 +50,13 @@
     <span id="me" class="muted"></span>
     <button id="logout" class="ghost">Salir</button>
   </header>
+  <section id="animatic" class="animatic" hidden>
+    <div class="row"><b>Animatic</b><span id="anim-name" class="muted small"></span><span class="grow"></span>
+      <button id="anim-sync" class="ghost small" title="Busca cada boceto en el video y le pone su tiempo">⟳ Sincronizar tarjetas</button>
+      <label class="btn ghost small" title="Subir o reemplazar el animatic de esta parte (.mp4, hasta 50 MB)">⇪ Cargar animatic<input id="anim-file" type="file" accept="video/*" hidden></label>
+      <button id="anim-toggle" class="ghost small">Ocultar</button></div>
+    <video id="anim-video" controls playsinline></video>
+  </section>
   <main id="board" class="board">
     <div class="drop-hint">Arrastra imágenes aquí (desde tu PC u otra pestaña) o pega con Ctrl+V: una tarjeta por imagen.</div>
   </main>
@@ -104,6 +111,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611090200"></script>
+<script src="app.js?v=202611090300"></script>
 </body>
 </html>

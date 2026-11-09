@@ -111,6 +111,7 @@ async function loadBoards() {
   state.board = mine.find(b => `${b.episode}-${b.part}` === h.get('b')) || mine.at(-1) || null;
   state.ep = state.board?.episode ?? 1;
   fillSelects();
+  await loadAnimatic();
   await loadShots();
 }
 function fillSelects() {
@@ -125,7 +126,7 @@ function fillSelects() {
     : '<option value="">Sin partes: usa + Parte</option>';
   $('#board').classList.toggle('refs', state.board?.part === 0);
 }
-function goBoard(b) { state.board = b; fillSelects(); setHash(); loadShots(); }
+async function goBoard(b) { state.board = b; fillSelects(); setHash(); await loadAnimatic(); loadShots(); }
 $('#proj-select').onchange = e => {
   state.project = state.projects.find(p => p.id === e.target.value);
   const first = state.boards.find(b => b.project_id === state.project.id);
@@ -158,6 +159,91 @@ function setHash(shot) {
   const pre = p && p.id !== BAUL ? `p=${p.slug}&` : '';
   history.replaceState(null, '', b ? `#${pre}b=${b.episode}-${b.part}${shot ? '&s=' + encodeURIComponent(shot.code) : ''}` : `#${pre}`);
 }
+
+// ---------- animatic de la parte ----------
+// Vive en Storage junto a la parte: <parte>/_animatic/animatic*.<ext> + animatic*.json ({file, times: {code: segundos}}).
+// La web solo puede agregar archivos (no sobrescribir), así que cada carga lleva fecha y vale el más nuevo.
+const anim = { board: null, path: null, times: {}, file: '' };
+const fmtT = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+const animDir = b => basePath(b, '_').replace(/\/_$/, '/_animatic');
+async function loadAnimatic() {
+  const b = state.board, box = $('#animatic');
+  if (!b) { box.hidden = true; return; }
+  if (anim.board !== b.id) {
+    Object.assign(anim, { board: b.id, path: null, times: {}, file: '' });
+    const { data } = await sb.storage.from(BUCKET).list(animDir(b));
+    const names = (data || []).map(o => o.name).sort();
+    const vid = names.filter(n => /^animatic.*\.(mp4|mov|webm)$/i.test(n)).at(-1);
+    const json = names.filter(n => /^animatic.*\.json$/.test(n)).at(-1);
+    if (vid) {
+      anim.path = `${animDir(b)}/${vid}`;
+      if (json) {
+        const { data: j } = await sb.storage.from(BUCKET).download(`${animDir(b)}/${json}`);
+        try { Object.assign(anim, JSON.parse(await j.text())); } catch {}
+      }
+    }
+  }
+  box.hidden = false;
+  const v = $('#anim-video'), open = localStorage.getItem('animOpen') !== '0';
+  const n = Object.keys(anim.times).length;
+  $('#anim-name').textContent = anim.path ? `${anim.file || 'animatic'}${n ? ` · ${n} tarjetas sincronizadas` : ''}` : 'Esta parte no tiene animatic todavía';
+  $('#anim-toggle').hidden = $('#anim-sync').hidden = !anim.path;
+  $('#anim-toggle').textContent = open ? 'Ocultar' : 'Mostrar';
+  v.hidden = !anim.path || !open;
+  if (anim.path) {
+    if (v.dataset.path !== anim.path) { v.crossOrigin = 'anonymous'; v.src = (await signedUrls([anim.path]))(anim.path); v.dataset.path = anim.path; }
+  } else { v.removeAttribute('src'); v.dataset.path = ''; }
+}
+function seekAnim(code) {
+  const v = $('#anim-video'), t = anim.times[code]; if (t == null || !anim.path) return;
+  localStorage.setItem('animOpen', '1'); v.hidden = false; $('#anim-toggle').textContent = 'Ocultar';
+  v.currentTime = t; v.play().catch(() => {}); $('#animatic').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// Mientras corre el video se marca la tarjeta del plano actual.
+$('#anim-video').ontimeupdate = e => {
+  const t = e.target.currentTime;
+  let cur = null, best = -1;
+  for (const [code, at] of Object.entries(anim.times)) if (at <= t + .05 && at > best) { best = at; cur = code; }
+  document.querySelectorAll('.card.now').forEach(c => c.classList.remove('now'));
+  const s = cur && state.shots.find(x => x.code === cur);
+  if (s) document.querySelector(`.card[data-id="${s.id}"]`)?.classList.add('now');
+};
+$('#anim-toggle').onclick = () => { localStorage.setItem('animOpen', $('#anim-video').hidden ? '1' : '0'); loadAnimatic(); };
+// Cada boceto se compara con el video cada 1/4 s (misma huella de bordes que "Sugerir boceto"); queda el cuadro más parecido.
+async function syncAnimatic() {
+  const shots = state.shots.filter(s => s.sketch_path);
+  const v = document.createElement('video'); v.crossOrigin = 'anonymous'; v.muted = true; v.preload = 'auto';
+  v.src = (await signedUrls([anim.path]))(anim.path);
+  await new Promise((ok, ko) => { v.onloadeddata = ok; v.onerror = () => ko(new Error('No pude abrir el video del animatic')); });
+  const feats = await Promise.all(shots.map(s => composition(s.sketch_path)));
+  const best = shots.map(() => ({ t: null, sc: -1 }));
+  for (let t = 0; t < v.duration; t += .25) {
+    v.currentTime = t; await new Promise(r => { v.onseeked = r; });
+    const f = featOf(v);
+    feats.forEach((g, i) => { if (!g) return; let sc = 0; for (let k = 0; k < g.length; k++) sc += g[k] * f[k]; if (sc > best[i].sc) best[i] = { t, sc }; });
+    if (Math.round(t * 4) % 40 === 0) toast(`Sincronizando animatic… ${Math.round(t / v.duration * 100)}%`, 4000);
+  }
+  // Solo cuenta si el boceto se parece de verdad a un cuadro (los bocetos sacados del animatic dan ~1).
+  anim.times = Object.fromEntries(shots.map((s, i) => [s.code, best[i]]).filter(([, b]) => b.sc > .6).map(([c, b]) => [c, Math.round(b.t * 100) / 100]));
+  const { error } = await sb.storage.from(BUCKET).upload(`${animDir(state.board)}/animatic_${stamp()}.json`,
+    new Blob([JSON.stringify({ file: anim.file, times: anim.times })], { type: 'application/json' }));
+  if (error) throw error;
+  toast(`Animatic sincronizado: ${Object.keys(anim.times).length} de ${shots.length} tarjetas`, 5000);
+  loadAnimatic(); renderBoard();
+}
+$('#anim-sync').onclick = () => syncAnimatic().catch(e => toast(e.message, 5000));
+$('#anim-file').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f || !state.board) return;
+  const mb = f.size / 1e6;
+  if (mb > 50) return toast(`El video pesa ${Math.round(mb)} MB (máximo 50). Exporta un .mp4 más liviano o pídeselo a Claude.`, 9000);
+  toast(`Subiendo animatic (${Math.round(mb)} MB)…`, 60000);
+  const dir = animDir(state.board), name = `animatic_${stamp()}${ext(f)}`;
+  const { error } = await sb.storage.from(BUCKET).upload(`${dir}/${name}`, f, { contentType: f.type || 'video/mp4' });
+  if (error) return toast(error.message, 6000);
+  Object.assign(anim, { board: state.board.id, path: `${dir}/${name}`, file: f.name, times: {} });
+  await loadAnimatic();
+  syncAnimatic().catch(err => toast(err.message, 5000));
+};
 
 async function loadShots() {
   if (!state.board) { $('#board').querySelectorAll('.card').forEach(c => c.remove()); return; }
@@ -202,14 +288,14 @@ async function renderBoard() {
         <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}${imgTools(!!r, true)}</div>
       </div>
       <div class="meta">
-        <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span><span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
+        <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span>${anim.times[s.code] != null ? `<button class="tc" title="Ver en el animatic">▶ ${fmtT(anim.times[s.code])}</button>` : ''}<span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
           <select class="kind" title="Tipo">${Object.entries(KIND_ONE).map(([k, l]) => `<option value="${k}" ${k === (s.kind || 'shot') ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="grow"></span>
           <span class="muted small">${s.renders.length} render${s.renders.length === 1 ? '' : 's'}${open ? ` · 💬 ${open}` : ''}</span></div>
         ${s.title ? `<div class="muted">${esc(s.title)}</div>` : ''}
         <div class="who">${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
       </div>`;
     wireTools(el.querySelector('.ph.r'), s, r?.id);
-    el.onclick = e => { if (e.target.closest('.kind, .tools')) return; if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); if (e.target.closest('.mv')) return pickTarget(s, 'move'); openShot(s); };
+    el.onclick = e => { if (e.target.closest('.kind, .tools')) return; if (e.target.closest('.tc')) return seekAnim(s.code); if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); if (e.target.closest('.mv')) return pickTarget(s, 'move'); openShot(s); };
     el.querySelector('.kind').onchange = e => setKind(s, e.target.value);
     dropTarget(el, files => uploadRenders(s, files));
     // Desde la franja de abajo (código): reordenar. Desde el render: se mueve solo ese render.
@@ -409,6 +495,13 @@ const featCache = new Map();
 async function composition(path) {
   if (!featCache.has(path)) featCache.set(path, (async () => {
     const img = new Image(); img.crossOrigin = 'anonymous'; img.src = (await signedUrls([path]))(path); await img.decode();
+    return featOf(img);
+  })().catch(() => null));
+  return featCache.get(path);
+}
+// Mapa de bordes 64×36 normalizado de una imagen, canvas o cuadro de video.
+function featOf(img) {
+  {
     const W = 64, H = 36, w2 = W * 2, h2 = H * 2, c = new OffscreenCanvas(w2, h2), g = c.getContext('2d');
     g.drawImage(img, 0, 0, w2, h2);
     const d = g.getImageData(0, 0, w2, h2).data, gray = new Float32Array(w2 * h2);
@@ -431,8 +524,7 @@ async function composition(path) {
     for (let i = 0; i < b.length; i++) { b[i] -= mean; norm += b[i] * b[i]; }
     norm = Math.sqrt(norm) || 1; for (let i = 0; i < b.length; i++) b[i] /= norm;
     return b;
-  })().catch(() => null));
-  return featCache.get(path);
+  }
 }
 // Probado con los 14 pares ya asignados de la Parte 5: el boceto correcto sale 1º en 9 y entre los 5 primeros en 12.
 async function suggest(src, opts, score) {
