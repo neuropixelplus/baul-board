@@ -163,14 +163,15 @@ function setHash(shot) {
 // ---------- animatic de la parte ----------
 // Vive en Storage junto a la parte: <parte>/_animatic/animatic*.<ext> + animatic*.json ({file, times: {code: segundos}}).
 // La web solo puede agregar archivos (no sobrescribir), así que cada carga lleva fecha y vale el más nuevo.
-const anim = { board: null, path: null, times: {}, file: '' };
+// times = inicio del plano de cada tarjeta; at = el cuadro exacto (ordena las poses de un mismo plano).
+const anim = { board: null, path: null, times: {}, at: {}, file: '' };
 const fmtT = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 const animDir = b => basePath(b, '_').replace(/\/_$/, '/_animatic');
 async function loadAnimatic() {
   const b = state.board, box = $('#animatic');
   if (!b) { box.hidden = true; return; }
   if (anim.board !== b.id) {
-    Object.assign(anim, { board: b.id, path: null, times: {}, file: '' });
+    Object.assign(anim, { board: b.id, path: null, times: {}, at: {}, file: '' });
     const { data } = await sb.storage.from(BUCKET).list(animDir(b));
     const names = (data || []).map(o => o.name).sort();
     const vid = names.filter(n => /^animatic.*\.(mp4|mov|webm)$/i.test(n)).at(-1);
@@ -225,11 +226,13 @@ async function syncAnimatic() {
     if (Math.round(t * 4) % 40 === 0) toast(`Sincronizando animatic… ${Math.round(t / v.duration * 100)}%`, 4000);
   }
   // El boceto suele ser un cuadro del medio del plano: se retrocede mientras la imagen siga siendo la misma toma (sin corte).
-  for (const b of best) { if (b.t == null) continue; let j = b.j; while (j > 0 && dot(F[j - 1], F[b.j]) > .45) j--; b.t = j * .25; }
+  for (const b of best) { if (b.t == null) continue; b.at = b.t; let j = b.j; while (j > 0 && dot(F[j - 1], F[b.j]) > .45) j--; b.t = j * .25; }
   // Solo cuenta si el boceto se parece de verdad a un cuadro (los bocetos sacados del animatic dan ~1).
-  anim.times = Object.fromEntries(shots.map((s, i) => [s.code, best[i]]).filter(([, b]) => b.sc > .6).map(([c, b]) => [c, Math.round(b.t * 100) / 100]));
+  const ok = shots.map((s, i) => [s.code, best[i]]).filter(([, b]) => b.sc > .6);
+  anim.times = Object.fromEntries(ok.map(([c, b]) => [c, Math.round(b.t * 100) / 100]));
+  anim.at = Object.fromEntries(ok.map(([c, b]) => [c, b.at]));
   const { error } = await sb.storage.from(BUCKET).upload(`${animDir(state.board)}/animatic_${stamp()}.json`,
-    new Blob([JSON.stringify({ file: anim.file, times: anim.times })], { type: 'application/json' }));
+    new Blob([JSON.stringify({ file: anim.file, times: anim.times, at: anim.at })], { type: 'application/json' }));
   if (error) throw error;
   toast(`Animatic sincronizado: ${Object.keys(anim.times).length} de ${shots.length} tarjetas`, 5000);
   loadAnimatic(); renderBoard();
@@ -243,7 +246,7 @@ $('#anim-file').onchange = async e => {
   const dir = animDir(state.board), name = `animatic_${stamp()}${ext(f)}`;
   const { error } = await sb.storage.from(BUCKET).upload(`${dir}/${name}`, f, { contentType: f.type || 'video/mp4' });
   if (error) return toast(error.message, 6000);
-  Object.assign(anim, { board: state.board.id, path: `${dir}/${name}`, file: f.name, times: {} });
+  Object.assign(anim, { board: state.board.id, path: `${dir}/${name}`, file: f.name, times: {}, at: {} });
   await loadAnimatic();
   syncAnimatic().catch(err => toast(err.message, 5000));
 };
@@ -292,7 +295,7 @@ async function renderBoard() {
     const r = shownRender(s);
     const open = s.comments.filter(c => !c.resolved).length;
     const el = document.createElement('article');
-    const same = (byT[anim.times[s.code]] || []).filter(c => c !== s.code);
+    const plan = (byT[anim.times[s.code]] || []).slice().sort((a, b) => (anim.at?.[a] ?? 0) - (anim.at?.[b] ?? 0)), same = plan.filter(c => c !== s.code);
     el.className = 'card' + (state.sel.has(s.id) ? ' sel' : '') + (isNew(s) ? ' new' : ''); el.dataset.id = s.id; el.draggable = true;
     el.innerHTML = `
       <button class="del" title="Eliminar (va a la papelera)">✕</button>
@@ -306,7 +309,7 @@ async function renderBoard() {
         <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span>${anim.times[s.code] != null ? `<button class="tc" title="Ver en el animatic (tiempo · duración del plano)">▶ ${fmtT(anim.times[s.code])}${durs[s.code] ? ` · ${durs[s.code].toFixed(1)}s` : ''}</button>` : ''}<span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
           <select class="kind" title="Tipo">${Object.entries(KIND_ONE).map(([k, l]) => `<option value="${k}" ${k === (s.kind || 'shot') ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="grow"></span>
           <span class="muted small">${s.renders.length} render${s.renders.length === 1 ? '' : 's'}${open ? ` · 💬 ${open}` : ''}</span></div>
-        ${same.length ? `<div class="same small" title="Estas tarjetas caen en el mismo plano del animatic: ¿sobra alguna?">≡ mismo plano que ${same.map(esc).join(', ')}</div>` : ''}
+        ${same.length ? `<div class="same small" title="Mismo plano del animatic que ${same.map(esc).join(', ')}">≡ pose ${plan.indexOf(s.code) + 1} de ${plan.length} del mismo plano</div>` : ''}
         ${s.title ? `<div class="muted">${esc(s.title)}</div>` : ''}
         <div class="who">${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
       </div>`;
@@ -733,8 +736,9 @@ const toggleVideo = guard(async (s, rid) => {
 // Duración de cada plano según el animatic: hasta el tiempo del plano siguiente (el último, hasta el final del video).
 function animDurations() {
   const end = $('#anim-video').duration || null;
-  const list = Object.entries(anim.times).sort((a, b) => a[1] - b[1]);
-  return Object.fromEntries(list.map(([c, t], i) => [c, (list[i + 1]?.[1] ?? end) != null ? Math.round(((list[i + 1]?.[1] ?? end) - t) * 100) / 100 : null]));
+  const starts = [...new Set(Object.values(anim.times))].sort((a, b) => a - b);
+  const next = t => starts.find(x => x > t) ?? end;
+  return Object.fromEntries(Object.entries(anim.times).map(([c, t]) => [c, next(t) != null ? Math.round((next(t) - t) * 100) / 100 : null]));
 }
 const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
 async function exportPicks() {
@@ -820,7 +824,7 @@ async function renderClip(s) {
 const orderByAnimatic = guard(async () => {
   if (!Object.keys(anim.times).length) return toast('Primero: ⟳ Sincronizar tarjetas');
   let key = -1;
-  const keyed = state.shots.map((s, i) => { key = anim.times[s.code] ?? key + .001; return { s, key, i }; });
+  const keyed = state.shots.map((s, i) => { key = anim.at?.[s.code] ?? anim.times[s.code] ?? key + .001; return { s, key, i }; });
   const list = keyed.sort((a, b) => a.key - b.key || a.i - b.i).map(x => x.s);
   const old = new Map(state.shots.map(x => [x.id, x.sort]));
   const changes = list.map((x, k) => [x.id, (k + 1) * 10]).filter(([id, v]) => old.get(id) !== v);
