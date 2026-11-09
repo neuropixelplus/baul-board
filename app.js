@@ -273,6 +273,8 @@ async function renderBoard() {
   }
   const url = await signedUrls(shots.flatMap(s => [s.sketch_path, latestRender(s)?.path]));
   const board = $('#board');
+  // Al rehacer las tarjetas la página se acorta un instante: se fija la altura y se vuelve al mismo lugar.
+  const y = scrollY; board.style.minHeight = board.offsetHeight + 'px';
   board.querySelectorAll('.card').forEach(c => c.remove());
   for (const s of shots) {
     const r = latestRender(s);
@@ -333,6 +335,7 @@ async function renderBoard() {
     });
     board.appendChild(el);
   }
+  board.style.minHeight = ''; scrollTo(0, y);
 }
 
 const T_SHOT = 'application/x-baul-shot', T_RENDER = 'application/x-baul-render', T_ORDER = 'application/x-baul-order';
