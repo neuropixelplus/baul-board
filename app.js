@@ -79,7 +79,7 @@ async function boot() {
   $('#me').textContent = m.name || email;
   $('#login').hidden = true; $('#app').hidden = false;
   await loadBoards();
-  subscribe(); loadNotifs(); subscribeNotifs();
+  subscribe(); loadNotifs(); subscribeNotifs(); initPush();
 }
 function showLogin(msg = '') { $('#login').hidden = false; $('#app').hidden = true; $('#login-msg').textContent = msg; }
 $('#login-form').onsubmit = async e => {
@@ -1444,9 +1444,7 @@ function paintBell() {
 }
 function renderNotifs() {
   const where = id => { const b = state.boards.find(x => x.id === id); return b ? `${projectOf(b).id !== BAUL ? projectOf(b).name + ' · ' : ''}EP${b.episode} ${b.part ? 'P' + b.part : 'Refs'}` : ''; };
-  const perm = 'Notification' in window ? Notification.permission : 'no';
-  $('#notif').innerHTML = `<div class="row"><b>Avisos</b><span class="muted small">· 7 días</span><span class="grow"></span>
-      ${perm === 'default' ? '<button class="ghost small" data-perm>Avisos del sistema</button>' : ''}</div>
+  $('#notif').innerHTML = `<div class="row"><b>Avisos</b><span class="muted small">· 7 días</span></div>${pushRow()}
     ${notif.items.slice(0, 80).map(n => `<button class="nt ${Date.parse(n.at) > notif.seen ? 'new' : ''}" data-n="${n.id}">
       <span><b>${esc(n.who)}</b> ${esc(n.body.length > 140 ? n.body.slice(0, 140) + '…' : n.body)}</span>
       <span class="muted small">${esc(n.code)} · ${where(n.board_id)} · ${ago(n.at)}</span></button>`).join('') || '<p class="muted small">Nada nuevo en 7 días.</p>'}`;
@@ -1462,7 +1460,8 @@ $('#bell').onclick = e => {
 };
 document.addEventListener('click', e => { if (!e.target.closest('#notif, #bell')) $('#notif').hidden = true; });
 $('#notif').onclick = async e => {
-  if (e.target.closest('[data-perm]')) { await Notification.requestPermission(); return renderNotifs(); }
+  if (e.target.closest('[data-push-on]')) return pushOn();
+  if (e.target.closest('[data-push-off]')) return pushOff();
   const n = notif.items.find(x => x.id === e.target.closest('.nt')?.dataset.n); if (!n) return;
   $('#notif').hidden = true; openFromNotif(n);
 };
@@ -1484,7 +1483,7 @@ async function onInsert(kind, row) {
   if (notif.items.some(x => x.id === n.id)) return;
   notif.items.unshift(n); paintBell();
   toast(`🔔 ${n.who} ${n.body.slice(0, 80)} · ${n.code}`, 5000);
-  if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+  if (!push.sub && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
     try {
       const sys = new Notification(`${n.code} · ${n.who}`, { body: n.body.slice(0, 200), tag: n.id, icon: 'icon.svg' });
       sys.onclick = () => { window.focus(); sys.close(); openFromNotif(n); };
@@ -1499,6 +1498,61 @@ function subscribeNotifs() {
     .subscribe();
   // El celular corta la conexión en segundo plano: al volver se recarga la lista.
   document.addEventListener('visibilitychange', () => { if (!document.hidden) loadNotifs(); });
+}
+
+// ---------- avisos push (aunque la app esté cerrada) ----------
+// Cada aparato se suscribe una vez desde 🔔; la función notify de Supabase manda el aviso al insertar un render, comentario o video.
+// En iPhone solo funciona con el tablero agregado a la pantalla de inicio y abierto desde ese ícono.
+const VAPID_PUBLIC = 'BBjnAwb0V1RSfBFpF-PZpY9gIDOs1HFsxroNOHHDWMsBzYQmjPC4nYyTDeg_mjyWx9B__FSrrZxkvAkQ2HHNioU';
+const push = { reg: null, sub: null, ok: 'serviceWorker' in navigator && 'PushManager' in window };
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+async function initPush() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    push.reg = await navigator.serviceWorker.register('sw.js');
+    if (push.ok) push.sub = await push.reg.pushManager.getSubscription();
+  } catch (e) { console.warn('sw', e); }
+  navigator.serviceWorker.addEventListener('message', e => e.data?.open && openByUrl(e.data.open));
+}
+async function openByUrl(url) {
+  const h = new URLSearchParams(url.split('#')[1] || '');
+  const p = state.projects.find(x => x.slug === (h.get('p') || 'baul'));
+  const [ep, part] = (h.get('b') || '').split('-').map(Number);
+  const b = state.boards.find(x => x.project_id === p?.id && x.episode === ep && x.part === part);
+  if (!b) return;
+  const code = h.get('s');
+  if (state.board?.id !== b.id) {
+    closeShot(); state.project = p; state.ep = ep; state.board = b;
+    fillSelects(); setHash(); await loadAnimatic(); await loadShots();
+  }
+  const shot = state.shots.find(x => x.code === code); if (shot) openShot(shot);
+}
+function pushRow() {
+  if (push.sub) return '<div class="row small"><span>📱 Avisos activados en este aparato</span><span class="grow"></span><button class="ghost small" data-push-off>Desactivar</button></div>';
+  if (isIOS && !standalone) return '<p class="muted small">📱 En iPhone: Compartir → "Agregar a pantalla de inicio", abre el tablero desde ese ícono y activa aquí los avisos.</p>';
+  if (!push.ok) return '<p class="muted small">Este navegador no recibe avisos push.</p>';
+  if (Notification.permission === 'denied') return '<p class="muted small">Los avisos están bloqueados para esta página en el navegador.</p>';
+  return '<button class="small" data-push-on>📱 Recibir avisos en este aparato</button>';
+}
+async function pushOn() {
+  if (!push.reg) return toast('No se pudo preparar los avisos en este navegador');
+  if (await Notification.requestPermission() !== 'granted') return renderNotifs();
+  try {
+    const key = Uint8Array.from(atob(VAPID_PUBLIC.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+    const sub = await push.reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    const j = sub.toJSON();
+    const { error } = await sb.from('push_subs').upsert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, email: state.me.email });
+    if (error) throw error;
+    push.sub = sub; toast('Listo: te avisará aunque el tablero esté cerrado');
+  } catch (e) { toast(/push_subs/.test(e.message) ? 'Falta correr el SQL de avisos en Supabase' : e.message, 6000); }
+  renderNotifs();
+}
+async function pushOff() {
+  const ep = push.sub?.endpoint;
+  try { await push.sub?.unsubscribe(); } catch {}
+  if (ep) await sb.from('push_subs').delete().eq('endpoint', ep);
+  push.sub = null; toast('Avisos desactivados en este aparato'); renderNotifs();
 }
 
 // ---------- dibujar sobre una imagen ----------
