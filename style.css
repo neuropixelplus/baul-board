@@ -180,3 +180,13 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .card .tc { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 1px 6px; font-size: 11px; font-weight: 600; margin-right: 6px; }
 .card.now { outline: 3px solid var(--accent); outline-offset: 2px; }
 .lightbox .lb-dl { position: fixed; top: 16px; right: 16px; }
+
+.card .vstar { position: absolute; top: 4px; right: 4px; background: rgba(0,0,0,.55); color: #bbb; border: 0; padding: 0 7px; font-size: 16px; line-height: 24px; border-radius: 12px; opacity: 0; }
+.card:hover .vstar, .card .vstar.on { opacity: 1; }
+.card .vstar.on { color: #ffd23f; background: rgba(0,0,0,.7); }
+#vid-render.on { color: #ffd23f; border-color: #ffd23f; }
+.compare figure { overflow: hidden; }
+.compare img.zoomed { cursor: grab; }
+.neighbors { display: flex; gap: 8px; }
+.neighbors button { flex: 1; display: flex; align-items: center; gap: 8px; background: var(--panel); color: var(--text); border: 1px solid var(--line); padding: 4px; font-weight: 500; }
+.neighbors img { width: 120px; aspect-ratio: 16/9; object-fit: cover; border-radius: 4px; background: #111; }

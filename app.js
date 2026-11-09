@@ -263,21 +263,25 @@ async function loadShots() {
   else if (want) { const s = state.shots.find(x => x.code === want); if (s) openShot(s); }
 }
 const latestRender = s => s.renders.find(r => r.id === s.approved_render_id) || s.renders.at(-1);
+// En la tarjeta se ve el render ★ para video si hay; si no, el aprobado o el último.
+const shownRender = s => s.renders.find(r => r.id === s.video_render_id) || latestRender(s);
 
 async function renderBoard() {
-  const shots = state.shots.filter(s => (state.filter === 'todos' || s.status === state.filter)
+  const shots = state.shots.filter(s => (state.filter === 'todos' || (state.filter === 'video' ? s.video_render_id : s.status === state.filter))
     && (!state.kinds.size || state.kinds.has(s.kind || 'shot')));
   for (const b of $('#kinds').querySelectorAll('button')) {
     const n = b.dataset.k === 'todos' ? state.shots.length : state.shots.filter(s => (s.kind || 'shot') === b.dataset.k).length;
     b.textContent = `${KIND_LABEL[b.dataset.k]} ${n}`;
   }
-  const url = await signedUrls(shots.flatMap(s => [s.sketch_path, latestRender(s)?.path]));
+  const url = await signedUrls(shots.flatMap(s => [s.sketch_path, shownRender(s)?.path]));
+  const nv = state.shots.filter(s => s.video_render_id).length;
+  $('#filters [data-f=video]').textContent = `★ Video${nv ? ' ' + nv : ''}`;
   const board = $('#board');
   // Al rehacer las tarjetas la página se acorta un instante: se fija la altura y se vuelve al mismo lugar.
   const y = scrollY; board.style.minHeight = board.offsetHeight + 'px';
   board.querySelectorAll('.card').forEach(c => c.remove());
   for (const s of shots) {
-    const r = latestRender(s);
+    const r = shownRender(s);
     const open = s.comments.filter(c => !c.resolved).length;
     const el = document.createElement('article');
     el.className = 'card'; el.dataset.id = s.id; el.draggable = true;
@@ -287,7 +291,7 @@ async function renderBoard() {
       <button class="mv" title="Mover en la secuencia: elegir después de qué tarjeta va">⇅ Mover</button>
       <div class="pair">
         <div class="ph s" title="Arrastra el boceto sobre otra tarjeta para usarlo como render de esa">${s.sketch_path ? `<img loading="lazy" draggable="false" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">${(s.kind || 'shot') !== 'shot' ? KIND_LABEL[s.kind] : /_color$/.test(s.code) ? 'color' : 'boceto'}</span></div>
-        <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span>` : ''}${imgTools(!!r, true)}</div>
+        <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span><button class="vstar ${r.id === s.video_render_id ? 'on' : ''}" title="★ Para video: este render va a Magnific video">★</button>` : ''}${imgTools(!!r, true)}</div>
       </div>
       <div class="meta">
         <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span>${anim.times[s.code] != null ? `<button class="tc" title="Ver en el animatic">▶ ${fmtT(anim.times[s.code])}</button>` : ''}<span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
@@ -297,7 +301,7 @@ async function renderBoard() {
         <div class="who">${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
       </div>`;
     wireTools(el.querySelector('.ph.r'), s, r?.id);
-    el.onclick = e => { if (e.target.closest('.kind, .tools')) return; if (e.target.closest('.tc')) return seekAnim(s.code); if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); if (e.target.closest('.mv')) return pickTarget(s, 'move'); openShot(s); };
+    el.onclick = e => { if (e.target.closest('.kind, .tools')) return; if (e.target.closest('.vstar')) return toggleVideo(s, r.id); if (e.target.closest('.tc')) return seekAnim(s.code); if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); if (e.target.closest('.mv')) return pickTarget(s, 'move'); openShot(s); };
     el.querySelector('.kind').onchange = e => setKind(s, e.target.value);
     dropTarget(el, files => uploadRenders(s, files));
     // Desde la franja de abajo (código): reordenar. Desde el render: se mueve solo ese render.
@@ -601,7 +605,6 @@ $('#filters').onclick = e => {
   state.filter = f; $('#filters').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.f === f));
   renderBoard();
 };
-$('#zoom').oninput = e => document.documentElement.style.setProperty('--card-w', e.target.value + 'px');
 
 // Nuevos shots: un shot por imagen, código = nombre del archivo.
 async function addShots(files) {
@@ -707,6 +710,89 @@ async function downloadImage(s, which) {
     toast(`Descargando ${name}`);
   } catch (e) { toast(`No pude descargar: ${e.message}`, 5000); }
 }
+// ---------- ★ para video y exportar al director ----------
+// video_render_id: el render que va a Magnific video. Es distinto de aprobado (se pueden aprobar varios y elegir uno).
+const toggleVideo = guard(async (s, rid) => {
+  const prev = s.video_render_id ?? null, next = prev === rid ? null : rid;
+  const { error } = await sb.from('shots').update({ video_render_id: next }).eq('id', s.id);
+  if (error) throw new Error(/video_render_id/.test(error.message) ? 'Falta correr el SQL de "★ para video" en Supabase' : error.message);
+  s.video_render_id = next;
+  toast(next ? `★ ${s.code} ${s.renders.find(r => r.id === rid)?.version ?? ''} va al video` : `${s.code} ya no va al video`, 2500,
+    guard(async () => { await sb.from('shots').update({ video_render_id: prev }).eq('id', s.id); }));
+});
+// Duración de cada plano según el animatic: hasta el tiempo del plano siguiente (el último, hasta el final del video).
+function animDurations() {
+  const end = $('#anim-video').duration || null;
+  const list = Object.entries(anim.times).sort((a, b) => a[1] - b[1]);
+  return Object.fromEntries(list.map(([c, t], i) => [c, (list[i + 1]?.[1] ?? end) != null ? Math.round(((list[i + 1]?.[1] ?? end) - t) * 100) / 100 : null]));
+}
+const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+async function exportPicks() {
+  const b = state.board;
+  const picks = state.shots.map((s, i) => ({ s, n: i + 1, r: s.renders.find(r => r.id === s.video_render_id) })).filter(x => x.r);
+  if (!picks.length) return toast('No hay renders con ★ en esta parte: márcalos con la estrella del render');
+  if (!window.JSZip) return toast('No cargó el compresor (JSZip); recarga la página', 5000);
+  const dur = animDurations(), zip = new JSZip();
+  const rows = [['n', 'archivo', 'shot', 'version', 'tiempo_animatic', 'duracion_seg', 'titulo', 'personajes', 'notas', 'fuente']];
+  for (const [k, { s, n, r }] of picks.entries()) {
+    toast(`Armando el zip… ${k + 1}/${picks.length}`, 10000);
+    const { data, error } = await sb.storage.from(BUCKET).download(r.path); if (error) return toast(`No pude bajar ${s.code}: ${error.message}`, 6000);
+    const name = `${String(n).padStart(3, '0')}_${s.code}_${r.version}${r.path.match(/\.\w+$/)?.[0] || '.png'}`;
+    zip.file(name, data);
+    rows.push([n, name, s.code, r.version, anim.times[s.code] != null ? fmtT(anim.times[s.code]) : '', dur[s.code] ?? '', s.title,
+      s.characters.map(c => [c.name, c.action].filter(Boolean).join(': ')).join(' | '), /^PureRef:/.test(s.notes || '') ? '' : s.notes, r.source]);
+  }
+  zip.file('lista.csv', '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n'));
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `EP${b.episode}_P${b.part}_para_video_${stamp().slice(0, 8)}.zip`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60e3);
+  toast(`Exportados ${picks.length} renders ★ (${a.download})`, 5000);
+}
+$('#export-picks').onclick = () => exportPicks().catch(e => toast(e.message, 6000));
+
+// ---------- zoom ----------
+// Alt + rueda sobre el tablero: cambia el tamaño de las tarjetas dejando quieta la que está bajo el mouse (como PureRef).
+const setCardW = w => { w = Math.max(160, Math.min(1200, Math.round(w))); document.documentElement.style.setProperty('--card-w', w + 'px');
+  $('#zoom').value = w; try { localStorage.setItem('cardW', w); } catch {} };
+try { const w = +localStorage.getItem('cardW'); if (w) setCardW(w); } catch {}
+$('#zoom').oninput = e => setCardW(+e.target.value);
+addEventListener('wheel', e => {
+  if (!e.altKey || !$('#detail').hidden || !e.target.closest?.('#board')) return;
+  e.preventDefault();
+  const card = e.target.closest('.card'), top = card?.getBoundingClientRect().top;
+  setCardW(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--card-w')) * (e.deltaY < 0 ? 1.12 : 1 / 1.12));
+  if (card) requestAnimationFrame(() => scrollBy(0, card.getBoundingClientRect().top - top));
+}, { passive: false });
+// En el detalle: rueda sobre la imagen = zoom donde está el mouse; arrastrar = mover; doble clic = volver a ver entera.
+function zoomable(img) {
+  let s = 1, x = 0, y = 0, drag = null;
+  const apply = () => { img.style.transform = `translate(${x}px, ${y}px) scale(${s})`; img.classList.toggle('zoomed', s > 1); };
+  img.style.transformOrigin = '0 0';
+  img.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = img.getBoundingClientRect(), mx = e.clientX - (r.left - x), my = e.clientY - (r.top - y);
+    const s2 = Math.max(1, Math.min(12, s * (e.deltaY < 0 ? 1.2 : 1 / 1.2)));
+    x = s2 === 1 ? 0 : mx - (mx - x) * s2 / s; y = s2 === 1 ? 0 : my - (my - y) * s2 / s; s = s2; apply();
+  }, { passive: false });
+  img.addEventListener('pointerdown', e => { if (s > 1) { drag = { px: e.clientX, py: e.clientY, x, y, moved: false }; img.setPointerCapture(e.pointerId); } });
+  img.addEventListener('pointermove', e => { if (!drag) return; x = drag.x + e.clientX - drag.px; y = drag.y + e.clientY - drag.py;
+    drag.moved ||= Math.abs(e.clientX - drag.px) + Math.abs(e.clientY - drag.py) > 4; apply(); });
+  img.addEventListener('pointerup', () => { img.dataset.dragged = drag?.moved ? '1' : ''; drag = null; });
+  img.addEventListener('dblclick', e => { e.stopPropagation(); s = 1; x = y = 0; apply(); });
+}
+
+// ---------- vecinos en el detalle ----------
+// El plano anterior y el siguiente de la secuencia, para revisar continuidad (suelo, luz, fondo) de un vistazo.
+async function renderNeighbors(s) {
+  const i = state.shots.indexOf(s), box = $('#neighbors');
+  const pair = [['Antes', state.shots[i - 1]], ['Después', state.shots[i + 1]]];
+  const img = x => { const r = x && (x.renders.find(v => v.id === x.video_render_id) || latestRender(x)); return r?.path || x?.sketch_path; };
+  const url = await signedUrls(pair.map(([, x]) => img(x)));
+  box.innerHTML = pair.map(([lbl, x]) => x ? `<button data-id="${x.id}" title="Abrir ${esc(x.code)}"><img src="${url(img(x))}" alt=""><span>${lbl} · ${esc(x.code)}</span></button>` : `<div class="muted small">${lbl}: —</div>`).join('');
+  box.onclick = e => { const b = e.target.closest('[data-id]'); if (b) openShot(state.shots.find(x => x.id === b.dataset.id)); };
+}
+
 // Orden para el chat de Claude del episodio (o uno nuevo): qué shot, dónde leerlo, sus vecinos, refs elegidas del episodio y cómo devolver el render.
 async function magnificOrder(s) {
   const b = state.board, i = state.shots.indexOf(s), p = projectOf(b);
@@ -832,7 +918,7 @@ async function renderViewer() {
   const frames = s.extra_frames || [];
   const url = await signedUrls([s.sketch_path, ...frames, ...s.renders.map(r => r.path)]);
   const tabs = [
-    ...s.renders.map(r => `<button data-v="${r.id}" class="${r.id === state.view ? 'on' : ''} ${r.id === s.approved_render_id ? 'ok' : ''}">${esc(r.version)}</button>`),
+    ...s.renders.map(r => `<button data-v="${r.id}" class="${r.id === state.view ? 'on' : ''} ${r.id === s.approved_render_id ? 'ok' : ''}">${r.id === s.video_render_id ? '★ ' : ''}${esc(r.version)}</button>`),
     s.renders.length ? `<button data-v="wipe" class="${state.view === 'wipe' ? 'on' : ''}" title="Cortina boceto/render">Cortina</button>` : '',
     `<button data-v="sketch" class="${state.view === 'sketch' ? 'on' : ''}">Solo boceto</button>`,
     ...frames.map((p, i) => `<button data-v="f${i}" class="${state.view === 'f' + i ? 'on' : ''}">Frame ${i + 2}</button>`),
@@ -862,10 +948,15 @@ async function renderViewer() {
   const delBtn = $('#del-render');
   delBtn.hidden = !r; delBtn.onclick = () => deleteRender(s, r);
   $('#out-render').hidden = !r; $('#out-render').onclick = () => { closeShot(); renderToCard(s, r.id); };
+  $('#vid-render').hidden = !r; $('#vid-render').classList.toggle('on', r?.id === s.video_render_id);
+  $('#vid-render').textContent = r?.id === s.video_render_id ? '★ Va al video' : '☆ Para video'; $('#vid-render').onclick = () => toggleVideo(s, r.id);
+  renderNeighbors(s);
   $('#swap-render').hidden = !r || !s.sketch_path; $('#swap-render').onclick = () => swapSketch(s, r);
   // Editar / Reemplazar van encima de cada imagen (imgTools).
   cmp.querySelectorAll('figure[data-t]').forEach(f => f.dataset.t && wireTools(f, s, f.dataset.t));
+  cmp.querySelectorAll('figure > img').forEach(zoomable);
   cmp.querySelectorAll('figure > img').forEach(img => img.onclick = () => {
+    if (img.dataset.dragged || img.classList.contains('zoomed')) return;
     const which = img.closest('figure').dataset.t;
     const lb = document.createElement('div'); lb.className = 'lightbox'; lb.innerHTML = `<img src="${img.src}">${which ? '<button class="lb-dl">⇩ Descargar</button>' : ''}`;
     lb.onclick = e => { if (e.target.closest('.lb-dl')) return downloadImage(s, which); lb.remove(); }; document.body.appendChild(lb);
