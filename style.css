@@ -21,6 +21,8 @@ textarea { width: 100%; resize: vertical; }
 .login-box { background: var(--panel); padding: 32px; border-radius: 12px; width: min(380px, 92vw); }
 .login-box h1 { margin: 0 0 4px; }
 .login-box form { display: flex; gap: 8px; margin-top: 16px; }
+.login-box form[hidden] { display: none; }
+#login-code { font-size: 18px; letter-spacing: 3px; }
 .login-box input { flex: 1; min-width: 0; }
 
 .top { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }

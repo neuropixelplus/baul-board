@@ -10,10 +10,10 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="RefBoards">
-<link rel="stylesheet" href="style.css?v=202611091600">
+<link rel="stylesheet" href="style.css?v=202611091710">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="config.js?v=202611091600"></script>
+<script src="config.js?v=202611091710"></script>
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -23,6 +23,10 @@
     <form id="login-form">
       <input id="login-email" type="email" placeholder="tu correo" required autocomplete="email">
       <button>Enviarme el enlace</button>
+    </form>
+    <form id="code-form">
+      <input id="login-code" inputmode="numeric" autocomplete="one-time-code" placeholder="o código de 6 dígitos" maxlength="10">
+      <button>Entrar</button>
     </form>
     <p id="login-msg" class="muted"></p>
   </div>
@@ -144,6 +148,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611091600"></script>
+<script src="app.js?v=202611091710"></script>
 </body>
 </html>

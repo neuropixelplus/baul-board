@@ -81,12 +81,25 @@ async function boot() {
   await loadBoards();
   subscribe(); loadNotifs(); subscribeNotifs(); initPush();
 }
-function showLogin(msg = '') { $('#login').hidden = false; $('#app').hidden = true; $('#login-msg').textContent = msg; }
+function showLogin(msg = '') {
+  $('#login').hidden = false; $('#app').hidden = true;
+  // Si el enlace del correo ya estaba usado o vencido, Supabase vuelve con #error_description=… en la dirección.
+  const err = new URLSearchParams(location.hash.slice(1)).get('error_description');
+  $('#login-msg').textContent = msg || (err ? 'El enlace ya se usó o venció. Pide uno nuevo y escribe el código que llega en el correo.' : '');
+}
 $('#login-form').onsubmit = async e => {
   e.preventDefault();
   const email = $('#login-email').value.trim();
   const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
-  $('#login-msg').textContent = error ? error.message : `Listo: revisa ${email} y abre el enlace.`;
+  $('#login-msg').textContent = error ? error.message : `Listo: revisa ${email}. Abre el enlace del correo.`;
+};
+// El código evita el problema del enlace en el celular: algunos correos abren el enlace antes que tú y lo gastan.
+$('#code-form').onsubmit = async e => {
+  e.preventDefault();
+  const email = $('#login-email').value.trim(), token = $('#login-code').value.replace(/\s/g, '');
+  if (!email) return $('#login-msg').textContent = 'Escribe tu correo arriba y luego el código.';
+  const { error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
+  if (error) $('#login-msg').textContent = /expired|invalid/i.test(error.message) ? 'Código vencido o incorrecto: pide uno nuevo.' : error.message;
 };
 $('#logout').onclick = async () => { await sb.auth.signOut(); location.reload(); };
 sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN' && !state.me) boot(); });
