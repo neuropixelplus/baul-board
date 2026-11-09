@@ -682,14 +682,27 @@ document.addEventListener('paste', async e => {
 });
 
 // Botones sobre una imagen: editar en Photoshop y reemplazar desde el disco (sin imagen: subir una).
-const imgTools = (has, gen = false) => `<div class="tools">${gen ? '<button class="t-gen" title="Copiar la orden para generar este shot en Magnific (pegar en el chat del episodio)">✦ Magnific</button>' : ''}${has ? '<button class="t-ps" title="Editar en Photoshop: al guardar vuelve sola aquí">✎ Editar</button>' : ''}<label class="t-rep" title="${has ? 'Reemplazar por otra imagen del disco (o mouse encima + Ctrl+V)' : 'Subir render desde el disco'}">${has ? '⟳ Reemplazar' : '+ Render'}<input type="file" accept="image/*" hidden></label></div>`;
+const imgTools = (has, gen = false) => `<div class="tools">${gen ? '<button class="t-gen" title="Copiar la orden para generar este shot en Magnific (pegar en el chat del episodio)">✦ Magnific</button>' : ''}${has ? '<button class="t-dl" title="Descargar la imagen original">⇩ Descargar</button>' : ''}${has ? '<button class="t-ps" title="Editar en Photoshop: al guardar vuelve sola aquí">✎ Editar</button>' : ''}<label class="t-rep" title="${has ? 'Reemplazar por otra imagen del disco (o mouse encima + Ctrl+V)' : 'Subir render desde el disco'}">${has ? '⟳ Reemplazar' : '+ Render'}<input type="file" accept="image/*" hidden></label></div>`;
 function wireTools(box, s, which) {
   const t = box?.querySelector('.tools'); if (!t) return;
   t.onclick = e => e.stopPropagation();
   t.querySelector('.t-ps')?.addEventListener('click', () => editInPhotoshop(s, which));
   t.querySelector('.t-gen')?.addEventListener('click', () => magnificOrder(s));
+  t.querySelector('.t-dl')?.addEventListener('click', () => downloadImage(s, which));
   t.querySelector('input').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     which ? replaceImage(s, which, f) : uploadRenders(s, [f]); };
+}
+// Baja el archivo original (no la vista reducida) con nombre <código>_<versión|boceto>.<ext>.
+async function downloadImage(s, which) {
+  const r = which && which !== 'sketch' ? s.renders.find(x => x.id === which) : null;
+  const path = r ? r.path : s.sketch_path; if (!path) return;
+  const name = `${s.code}_${r ? r.version : 'boceto'}${path.match(/\.\w+$/)?.[0] || '.png'}`;
+  try {
+    const { data, error } = await sb.storage.from(BUCKET).download(path); if (error) throw error;
+    const a = document.createElement('a'); a.href = URL.createObjectURL(data); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60e3);
+    toast(`Descargando ${name}`);
+  } catch (e) { toast(`No pude descargar: ${e.message}`, 5000); }
 }
 // Orden para el chat de Claude del episodio (o uno nuevo): qué shot, dónde leerlo, sus vecinos, refs elegidas del episodio y cómo devolver el render.
 async function magnificOrder(s) {
@@ -850,8 +863,9 @@ async function renderViewer() {
   // Editar / Reemplazar van encima de cada imagen (imgTools).
   cmp.querySelectorAll('figure[data-t]').forEach(f => f.dataset.t && wireTools(f, s, f.dataset.t));
   cmp.querySelectorAll('figure > img').forEach(img => img.onclick = () => {
-    const lb = document.createElement('div'); lb.className = 'lightbox'; lb.innerHTML = `<img src="${img.src}">`;
-    lb.onclick = () => lb.remove(); document.body.appendChild(lb);
+    const which = img.closest('figure').dataset.t;
+    const lb = document.createElement('div'); lb.className = 'lightbox'; lb.innerHTML = `<img src="${img.src}">${which ? '<button class="lb-dl">⇩ Descargar</button>' : ''}`;
+    lb.onclick = e => { if (e.target.closest('.lb-dl')) return downloadImage(s, which); lb.remove(); }; document.body.appendChild(lb);
   });
 }
 
