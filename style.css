@@ -168,3 +168,9 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .modal-box.order { max-width: 760px; width: 100%; display: grid; gap: 8px; }
 .modal-box.order .row { justify-content: flex-start; align-items: center; }
 .modal-box.order textarea { font: 12px/1.5 ui-monospace, Consolas, monospace; }
+.ref-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px; max-height: 34vh; overflow: auto; }
+.ref-pick button { display: grid; gap: 4px; padding: 4px; background: var(--card); color: var(--text); font-weight: 400; border: 2px solid transparent; border-radius: 6px; text-align: left; }
+.ref-pick button.on { border-color: var(--accent); }
+.ref-pick img { width: 100%; aspect-ratio: 16/10; object-fit: contain; background: #fff; border-radius: 3px; }
+.ref-pick span { font-size: 11px; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#proj-select { max-width: 190px; }

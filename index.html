@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NP+ RefBoards</title>
-<link rel="stylesheet" href="style.css?v=202611090100">
+<link rel="stylesheet" href="style.css?v=202611090200">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=202611090100"></script>
+<script src="config.js?v=202611090200"></script>
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -24,8 +24,11 @@
 <div id="app" hidden>
   <header class="top">
     <strong class="brand">NP+ RefBoards</strong>
-    <select id="board-select" aria-label="Tablero"></select>
-    <button id="new-board" class="ghost" title="Nuevo episodio/parte">+ Tablero</button>
+    <select id="proj-select" aria-label="Proyecto"></select>
+    <button id="new-project" class="ghost small" title="Nuevo proyecto">+</button>
+    <select id="ep-select" aria-label="Episodio"></select>
+    <select id="board-select" aria-label="Parte"></select>
+    <button id="new-board" class="ghost" title="Nueva parte en este episodio (0 = Refs)">+ Parte</button>
     <div class="filters" id="filters">
       <button data-f="todos" class="on">Todos</button>
       <button data-f="pendiente">Pendiente</button>
@@ -101,6 +104,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611090100"></script>
+<script src="app.js?v=202611090200"></script>
 </body>
 </html>

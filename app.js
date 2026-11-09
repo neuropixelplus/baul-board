@@ -4,7 +4,7 @@ const BUCKET = 'baul';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-const state = { me: null, boards: [], board: null, shots: [], filter: 'todos', kinds: new Set(), open: null, view: null };
+const state = { me: null, projects: [], project: null, ep: 1, boards: [], board: null, shots: [], filter: 'todos', kinds: new Set(), open: null, view: null };
 const KIND_LABEL = { todos: 'Todo', shot: 'Shots', bg: 'BGs', asset: 'Assets', sheet: 'Sheets' };
 const KIND_ONE = { shot: 'Shot', bg: 'BG', asset: 'Asset', sheet: 'Sheet' };
 const urlCache = new Map(); // path -> {url, exp}
@@ -64,7 +64,8 @@ async function uploadFile(file, path) {
   if (error) throw error;
   return path;
 }
-const basePath = (b, code) => `EP${b.episode}/P${b.part}/${slug(code)}`;
+// El Baúl de Darwin conserva sus rutas de siempre; otros proyectos van bajo su slug.
+const basePath = (b, code) => `${b.project_id && b.project_id !== BAUL ? projectOf(b).slug + '/' : ''}EP${b.episode}/P${b.part}/${slug(code)}`;
 
 // ---------- auth ----------
 async function boot() {
@@ -90,27 +91,72 @@ $('#login-form').onsubmit = async e => {
 $('#logout').onclick = async () => { await sb.auth.signOut(); location.reload(); };
 sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN' && !state.me) boot(); });
 
-// ---------- boards ----------
+// ---------- proyectos y tableros ----------
+// Proyecto → Episodio → Parte. La Parte 0 de cada episodio es su tablero de Refs (character sheets y fondos).
+const BAUL = '00000000-0000-0000-0000-0000000ba001';
+const projectOf = b => state.projects.find(p => p.id === (b?.project_id || BAUL)) || state.projects[0];
+const partLabel = b => b.part === 0 ? 'Refs · sheets y fondos' : `Parte ${b.part}${b.title && !/^EP\d/.test(b.title) ? ' — ' + esc(b.title) : ''}`;
+const epBoards = (pid, ep) => state.boards.filter(b => b.project_id === pid && b.episode === ep);
+// Al cambiar de episodio se abre la primera parte de trabajo; Refs solo si no hay otra.
+const firstPart = (pid, ep) => { const l = epBoards(pid, ep); return l.find(b => b.part > 0) || l[0] || null; };
 async function loadBoards() {
-  const { data } = await sb.from('boards').select('*').order('episode').order('part');
-  state.boards = data || [];
-  const want = new URLSearchParams(location.hash.slice(1)).get('b');
-  state.board = state.boards.find(b => `${b.episode}-${b.part}` === want) || state.boards.at(-1) || null;
-  $('#board-select').innerHTML = state.boards.map(b =>
-    `<option value="${b.id}" ${b === state.board ? 'selected' : ''}>EP${b.episode} · Parte ${b.part}${b.title && !/^EP\d/.test(b.title) ? ' — ' + esc(b.title) : ''}</option>`).join('');
+  const [{ data: ps }, { data }] = await Promise.all([
+    sb.from('projects').select('*').order('created_at'),
+    sb.from('boards').select('*').order('episode').order('part')]);
+  state.projects = ps?.length ? ps : [{ id: BAUL, name: 'El Baúl de Darwin', slug: 'baul', episodes: 6 }];
+  state.boards = (data || []).map(b => ({ ...b, project_id: b.project_id || BAUL }));
+  const h = new URLSearchParams(location.hash.slice(1));
+  state.project = state.projects.find(p => p.slug === (h.get('p') || 'baul')) || state.projects[0];
+  const mine = state.boards.filter(b => b.project_id === state.project.id);
+  state.board = mine.find(b => `${b.episode}-${b.part}` === h.get('b')) || mine.at(-1) || null;
+  state.ep = state.board?.episode ?? 1;
+  fillSelects();
   await loadShots();
 }
-$('#board-select').onchange = e => { state.board = state.boards.find(b => b.id === e.target.value); setHash(); loadShots(); };
+function fillSelects() {
+  const p = state.project;
+  const eps = Math.max(p.episodes || 1, ...state.boards.filter(b => b.project_id === p.id).map(b => b.episode));
+  $('#proj-select').innerHTML = state.projects.map(x => `<option value="${x.id}" ${x === p ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+  $('#ep-select').innerHTML = Array.from({ length: eps }, (_, i) => i + 1).map(e =>
+    `<option value="${e}" ${e === state.ep ? 'selected' : ''}>EP${e}${epBoards(p.id, e).length ? '' : ' · vacío'}</option>`).join('');
+  const parts = epBoards(p.id, state.ep);
+  $('#board-select').innerHTML = parts.length
+    ? parts.map(b => `<option value="${b.id}" ${b === state.board ? 'selected' : ''}>${partLabel(b)}</option>`).join('')
+    : '<option value="">Sin partes: usa + Parte</option>';
+  $('#board').classList.toggle('refs', state.board?.part === 0);
+}
+function goBoard(b) { state.board = b; fillSelects(); setHash(); loadShots(); }
+$('#proj-select').onchange = e => {
+  state.project = state.projects.find(p => p.id === e.target.value);
+  const first = state.boards.find(b => b.project_id === state.project.id);
+  state.ep = first?.episode ?? 1; goBoard(firstPart(state.project.id, state.ep));
+};
+$('#ep-select').onchange = e => { state.ep = +e.target.value; goBoard(firstPart(state.project.id, state.ep)); };
+$('#board-select').onchange = e => goBoard(state.boards.find(b => b.id === e.target.value) || null);
 $('#new-board').onclick = async () => {
-  const v = await ask('Nuevo tablero', 'Crear', ['Episodio (número)', 'Parte (número)']); if (!v) return;
-  const [ep, part] = v; if (!+ep || !+part) return toast('Episodio y parte deben ser números');
-  const { data, error } = await sb.from('boards').insert({ episode: +ep, part: +part, title: `EP${+ep} · Parte ${+part}` }).select().single();
-  if (error) return toast(error.message);
-  location.hash = `b=${data.episode}-${data.part}`; loadBoards();
+  const used = epBoards(state.project.id, state.ep).map(b => b.part);
+  const v = await ask(`Nueva parte en ${state.project.name} · EP${state.ep} (0 = Refs del episodio). Siguiente libre: ${Math.max(0, ...used) + 1}`, 'Crear', ['Parte (número)']);
+  if (!v) return;
+  const part = +v[0]; if (!Number.isInteger(part) || part < 0 || v[0] === '') return toast('La parte debe ser un número');
+  const { data, error } = await sb.from('boards').insert({ project_id: state.project.id, episode: state.ep, part,
+    title: part === 0 ? `EP${state.ep} · Refs` : `EP${state.ep} · Parte ${part}` }).select().single();
+  if (error) return toast(/duplicate|unique/i.test(error.message) ? 'Esa parte ya existe' : error.message);
+  state.boards.push(data); goBoard(data);
+};
+$('#new-project').onclick = async () => {
+  const v = await ask('Nuevo proyecto', 'Crear', ['Nombre', 'Cuántos episodios']); if (!v) return;
+  const [name, n] = v; if (!+n) return toast('Episodios debe ser un número');
+  const slug = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'proyecto';
+  const { data: p, error } = await sb.from('projects').insert({ name, slug, episodes: +n }).select().single();
+  if (error) return toast(/duplicate|unique/i.test(error.message) ? 'Ya existe un proyecto con ese nombre' : error.message);
+  const { data: b, error: e2 } = await sb.from('boards').insert({ project_id: p.id, episode: 1, part: 1, title: 'EP1 · Parte 1' }).select().single();
+  if (e2) return toast(e2.message);
+  state.projects.push(p); state.boards.push(b); state.project = p; state.ep = 1; goBoard(b);
 };
 function setHash(shot) {
-  const b = state.board; if (!b) return;
-  history.replaceState(null, '', `#b=${b.episode}-${b.part}${shot ? '&s=' + encodeURIComponent(shot.code) : ''}`);
+  const b = state.board, p = state.project;
+  const pre = p && p.id !== BAUL ? `p=${p.slug}&` : '';
+  history.replaceState(null, '', b ? `#${pre}b=${b.episode}-${b.part}${shot ? '&s=' + encodeURIComponent(shot.code) : ''}` : `#${pre}`);
 }
 
 async function loadShots() {
@@ -553,35 +599,57 @@ function wireTools(box, s, which) {
   t.querySelector('input').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return;
     which ? replaceImage(s, which, f) : uploadRenders(s, [f]); };
 }
-// Orden para el chat de Claude del episodio (o uno nuevo): qué shot, dónde leerlo, sus vecinos y cómo devolver el render.
-function magnificOrder(s) {
-  const b = state.board, i = state.shots.indexOf(s);
+// Orden para el chat de Claude del episodio (o uno nuevo): qué shot, dónde leerlo, sus vecinos, refs elegidas del episodio y cómo devolver el render.
+async function magnificOrder(s) {
+  const b = state.board, i = state.shots.indexOf(s), p = projectOf(b);
   const prev = state.shots[i - 1], next = state.shots[i + 1];
+  const proj = p.id !== BAUL ? ` --project ${p.slug}` : '';
   const cli = 'node C:/Claude_Ichi/baul-board/baul.mjs';
   const last = latestRender(s);
   const open = s.comments.filter(c => !c.resolved);
-  const text = [
-    `Genera en Magnific el shot ${s.code} de El Baúl de Darwin, EP${b.episode} Parte ${b.part} (posición ${i + 1} de ${state.shots.length} en la secuencia).`,
-    '',
-    `1. Lee el shot: ${cli} shot ${b.episode} ${b.part} ${s.code}  (boceto, personajes, notas, prompt y comentarios; baja las imágenes a cache/).`,
-    `2. Mira sus vecinos para que el escenario, la luz y la utilería sigan iguales:${prev ? ` antes ${prev.code}` : ''}${prev && next ? ',' : ''}${next ? ` después ${next.code}` : ''} (mismo comando; usa sus renders aprobados como referencia de escenario si existen).`,
-    s.characters.length ? `3. Personajes: ${s.characters.map(c => [c.name, c.where, c.action].filter(Boolean).join(' – ')).join('; ')}.` : '3. El shot no tiene personajes cargados: identifícalos en el boceto y agrégalos con add-shot --chars antes de generar.',
-    s.notes && !/^PureRef:/.test(s.notes) ? `   Notas: ${s.notes}` : '',
-    open.length ? `   Comentarios abiertos: ${open.map(c => `${c.author}: ${c.body}`).join(' | ')}` : '',
-    last ? `   Ya tiene ${s.renders.length} render(s); el último es ${last.version}${s.status === 'cambios' ? ' y pidieron cambios' : ''}.` : '',
-    '4. Sigue las reglas del proyecto (memoria de C:/Claude_Ichi: Seedream 5 Pro, sheets de personajes como referencia, el boceto no va como referencia: la composición va en el texto del prompt).',
-    `5. Cuando esté, súbelo: ${cli} render ${b.episode} ${b.part} ${s.code} <archivo> --source "Magnific <prod id>" --prompt <prompt.txt> --note "<crítica honesta>"`,
-    'Si este episodio aún no tiene chat, este es el chat nuevo: lee primero C:/Claude_Ichi/baul-board/README.md.',
-  ].filter(Boolean).join('\n');
+  // Refs del episodio (Parte 0): se preseleccionan las que nombran a un personaje del shot.
+  const rb = b.part !== 0 && state.boards.find(x => x.project_id === b.project_id && x.episode === b.episode && x.part === 0);
+  let refs = [];
+  if (rb) {
+    const { data } = await sb.from('shots').select('id, code, title, kind, sketch_path').eq('board_id', rb.id)
+      .in('kind', ['sheet', 'bg']).is('deleted_at', null).order('kind', { ascending: false }).order('sort').order('code');
+    refs = data || [];
+  }
+  const names = s.characters.map(c => c.name?.toLowerCase()).filter(n => n && n.length > 2);
+  const picked = new Set(refs.filter(r => r.kind === 'sheet' && names.some(n => `${r.code} ${r.title ?? ''}`.toLowerCase().includes(n))).map(r => r.id));
+  const textFor = () => {
+    const sel = refs.filter(r => picked.has(r.id));
+    const line = k => sel.filter(r => r.kind === k).map(r => r.code + (r.title ? ` (${r.title})` : '')).join(', ');
+    return [
+      `Genera en Magnific el shot ${s.code} de ${p.name}, EP${b.episode} Parte ${b.part} (posición ${i + 1} de ${state.shots.length} en la secuencia).`,
+      '',
+      `1. Lee el shot: ${cli} shot ${b.episode} ${b.part} ${s.code}${proj}  (boceto, personajes, notas, prompt y comentarios; baja las imágenes a cache/).`,
+      `2. Mira sus vecinos para que el escenario, la luz y la utilería sigan iguales:${prev ? ` antes ${prev.code}` : ''}${prev && next ? ',' : ''}${next ? ` después ${next.code}` : ''} (mismo comando; usa sus renders aprobados como referencia de escenario si existen).`,
+      s.characters.length ? `3. Personajes: ${s.characters.map(c => [c.name, c.where, c.action].filter(Boolean).join(' – ')).join('; ')}.` : '3. El shot no tiene personajes cargados: identifícalos en el boceto y agrégalos con add-shot --chars antes de generar.',
+      s.notes && !/^PureRef:/.test(s.notes) ? `   Notas: ${s.notes}` : '',
+      open.length ? `   Comentarios abiertos: ${open.map(c => `${c.author}: ${c.body}`).join(' | ')}` : '',
+      last ? `   Ya tiene ${s.renders.length} render(s); el último es ${last.version}${s.status === 'cambios' ? ' y pidieron cambios' : ''}.` : '',
+      sel.length ? `   Refs del episodio para usar (bájalas con ${cli} shot ${b.episode} 0 <code>${proj}):${line('sheet') ? ` sheets ${line('sheet')}` : ''}${line('sheet') && line('bg') ? ';' : ''}${line('bg') ? ` fondos ${line('bg')}` : ''}.` : '',
+      '4. Sigue las reglas del proyecto (memoria de C:/Claude_Ichi: Seedream 5 Pro, sheets de personajes como referencia, el boceto no va como referencia: la composición va en el texto del prompt).',
+      `5. Cuando esté, súbelo: ${cli} render ${b.episode} ${b.part} ${s.code} <archivo>${proj} --source "Magnific <prod id>" --prompt <prompt.txt> --note "<crítica honesta>"`,
+      'Si este episodio aún no tiene chat, este es el chat nuevo: lee primero C:/Claude_Ichi/baul-board/README.md.',
+    ].filter(Boolean).join('\n');
+  };
+  const url = await signedUrls(refs.map(r => r.sketch_path));
   const m = document.createElement('div'); m.className = 'modal';
   m.innerHTML = `<div class="modal-box order"><div class="row"><b>Orden para Magnific · ${esc(s.code)}</b><span class="grow"></span><button class="ghost small" data-close>Cerrar</button></div>
     <p class="muted small">Pégala en el chat de Claude de EP${b.episode} (o en uno nuevo si el episodio no tiene). Puedes editarla antes de copiar.</p>
+    ${refs.length ? `<p class="muted small">Refs de EP${b.episode} (clic para agregar o quitar; marcar refs rehace el texto):</p>
+    <div class="ref-pick">${refs.map(r => `<button type="button" data-ref="${r.id}" class="${picked.has(r.id) ? 'on' : ''}" title="${esc(r.code)}${r.title ? ' — ' + esc(r.title) : ''}">
+      <img src="${url(r.sketch_path)}" alt="" loading="lazy"><span>${KIND_ONE[r.kind]} · ${esc(r.title || r.code)}</span></button>`).join('')}</div>` : ''}
     <textarea rows="14"></textarea><div class="row"><button data-copy>Copiar orden</button></div></div>`;
-  const ta = m.querySelector('textarea'); ta.value = text;
+  const ta = m.querySelector('textarea'); ta.value = textFor();
   const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
   const close = () => { m.remove(); document.removeEventListener('keydown', onKey, true); };
   m.onclick = async e => {
     if (e.target === m || e.target.dataset.close !== undefined) return close();
+    const rf = e.target.closest('[data-ref]');
+    if (rf) { const id = rf.dataset.ref; picked.has(id) ? picked.delete(id) : picked.add(id); rf.classList.toggle('on'); ta.value = textFor(); return; }
     if (e.target.dataset.copy === undefined) return;
     try { await navigator.clipboard.writeText(ta.value); } catch { ta.select(); document.execCommand('copy'); }
     close(); toast('Orden copiada: pégala en el chat del episodio');
