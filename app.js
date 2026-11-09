@@ -270,15 +270,20 @@ const latestRender = s => s.renders.find(r => r.id === s.approved_render_id) || 
 const shownRender = s => s.renders.find(r => r.id === s.video_render_id) || latestRender(s);
 
 async function renderBoard() {
-  const shots = state.shots.filter(s => (state.filter === 'todos' || (state.filter === 'video' ? s.video_render_id : s.status === state.filter))
+  if (!seenData() && state.board) markSeen();
+  const shots = state.shots.filter(s => (state.filter === 'todos' || (state.filter === 'video' ? s.video_render_id : state.filter === 'nuevo' ? isNew(s) : s.status === state.filter))
     && (!state.kinds.size || state.kinds.has(s.kind || 'shot')) && matches(s, state.q));
   for (const b of $('#kinds').querySelectorAll('button')) {
     const n = b.dataset.k === 'todos' ? state.shots.length : state.shots.filter(s => (s.kind || 'shot') === b.dataset.k).length;
     b.textContent = `${KIND_LABEL[b.dataset.k]} ${n}`;
   }
-  const url = await signedUrls(shots.flatMap(s => [s.sketch_path, shownRender(s)?.path]));
+  const url = await cardUrls(shots.flatMap(s => [s.sketch_path, shownRender(s)?.path]));
   const nv = state.shots.filter(s => s.video_render_id).length, durs = animDurations();
   $('#filters [data-f=video]').textContent = `★ Video${nv ? ' ' + nv : ''}`;
+  const nn = state.shots.filter(isNew).length;
+  $('#filters [data-f=nuevo]').textContent = `Nuevo${nn ? ' ' + nn : ''}`; $('#filters [data-f=nuevo]').classList.toggle('hot', !!nn);
+  // Tarjetas que caen en el mismo plano del animatic (posibles repetidas).
+  const byT = {}; for (const x of state.shots) { const t = anim.times[x.code]; if (t != null) (byT[t] ||= []).push(x.code); }
   const board = $('#board');
   // Al rehacer las tarjetas la página se acorta un instante: se fija la altura y se vuelve al mismo lugar.
   const y = scrollY; board.style.minHeight = board.offsetHeight + 'px';
@@ -287,7 +292,8 @@ async function renderBoard() {
     const r = shownRender(s);
     const open = s.comments.filter(c => !c.resolved).length;
     const el = document.createElement('article');
-    el.className = 'card' + (state.sel.has(s.id) ? ' sel' : ''); el.dataset.id = s.id; el.draggable = true;
+    const same = (byT[anim.times[s.code]] || []).filter(c => c !== s.code);
+    el.className = 'card' + (state.sel.has(s.id) ? ' sel' : '') + (isNew(s) ? ' new' : ''); el.dataset.id = s.id; el.draggable = true;
     el.innerHTML = `
       <button class="del" title="Eliminar (va a la papelera)">✕</button>
       <button class="use" title="Usar esta imagen como render de otro shot (elegir de la lista)">↪ render de…</button>
@@ -300,6 +306,7 @@ async function renderBoard() {
         <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span>${anim.times[s.code] != null ? `<button class="tc" title="Ver en el animatic (tiempo · duración del plano)">▶ ${fmtT(anim.times[s.code])}${durs[s.code] ? ` · ${durs[s.code].toFixed(1)}s` : ''}</button>` : ''}<span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
           <select class="kind" title="Tipo">${Object.entries(KIND_ONE).map(([k, l]) => `<option value="${k}" ${k === (s.kind || 'shot') ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="grow"></span>
           <span class="muted small">${s.renders.length} render${s.renders.length === 1 ? '' : 's'}${open ? ` · 💬 ${open}` : ''}</span></div>
+        ${same.length ? `<div class="same small" title="Estas tarjetas caen en el mismo plano del animatic: ¿sobra alguna?">≡ mismo plano que ${same.map(esc).join(', ')}</div>` : ''}
         ${s.title ? `<div class="muted">${esc(s.title)}</div>` : ''}
         <div class="who">${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
       </div>`;
@@ -864,6 +871,63 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && state.sel.size && $('#detail').hidden && !document.querySelector('.modal')) { state.sel.clear(); paintSel(); }
 });
 
+// ---------- miniaturas ----------
+// El tablero muestra _thumbs/<ruta>.webp (640 px). Si todavía no existe, se ve la original y se crea la miniatura en segundo plano.
+const thumbOf = p => `_thumbs/${p}.webp`;
+const noThumb = new Set(), thumbQueue = []; let thumbBusy = 0;
+async function cardUrls(paths) {
+  paths = paths.filter(Boolean);
+  const url = await signedUrls([...paths, ...paths.filter(p => !noThumb.has(p)).map(thumbOf)]);
+  return p => { if (!p) return ''; const t = url(thumbOf(p)); if (t) return t; if (!noThumb.has(p)) { noThumb.add(p); queueThumb(p); } return url(p); };
+}
+function queueThumb(p) { thumbQueue.push(p); pumpThumbs(); }
+async function pumpThumbs() {
+  while (thumbBusy < 3 && thumbQueue.length) {
+    const p = thumbQueue.shift(); thumbBusy++;
+    makeThumb(p).catch(() => {}).finally(() => { thumbBusy--; pumpThumbs(); });
+  }
+}
+async function makeThumb(p) {
+  const img = new Image(); img.crossOrigin = 'anonymous'; img.src = (await signedUrls([p]))(p); await img.decode();
+  const w = Math.min(640, img.naturalWidth), h = Math.round(img.naturalHeight * w / img.naturalWidth);
+  const c = new OffscreenCanvas(w, h); c.getContext('2d').drawImage(img, 0, 0, w, h);
+  const blob = await c.convertToBlob({ type: 'image/webp', quality: .82 });
+  const { error } = await sb.storage.from(BUCKET).upload(thumbOf(p), blob, { contentType: 'image/webp' });
+  if (!error || /exists/i.test(error.message)) noThumb.delete(p);
+}
+
+// ---------- nuevo desde tu última visita ----------
+// Por navegador: cuándo viste la parte entera y cada shot. Nuevo = render o comentario de otra persona después de eso.
+const seenKey = () => `seen:${state.board?.id}`;
+function seenData() { try { return JSON.parse(localStorage.getItem(seenKey())) || null; } catch { return null; } }
+function saveSeen(d) { try { localStorage.setItem(seenKey(), JSON.stringify(d)); } catch {} }
+function isNew(s) {
+  const d = seenData(); if (!d) return false;
+  const since = Math.max(d.all, d.shots?.[s.id] || 0);
+  return s.renders.some(r => Date.parse(r.created_at) > since && r.created_by !== state.me?.name)
+    || s.comments.some(c => Date.parse(c.created_at) > since && c.author !== state.me?.name);
+}
+function markSeen(s) { const d = seenData() || { all: Date.now(), shots: {} }; if (s) (d.shots ||= {})[s.id] = Date.now(); else { d.all = Date.now(); d.shots = {}; } saveSeen(d); }
+$('#seen-all').onclick = () => { markSeen(); if (state.filter === 'nuevo') $('#filters [data-f=todos]').click(); else renderBoard(); toast('Todo marcado como visto'); };
+
+// ---------- atajos en el detalle ----------
+$('#d-keys').onclick = () => toast(KEYS_HELP, 8000);
+const KEYS_HELP = '1–9 versión · C comparar · B boceto · S ★ para video · A aprobar · X pedir cambios · ←/→ shot anterior/siguiente · Esc cerrar';
+document.addEventListener('keydown', e => {
+  if ($('#detail').hidden || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('.modal') || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  const s = state.open; if (!s) return;
+  const k = e.key.toLowerCase(), r = s.renders.find(x => x.id === state.view);
+  if (/^[1-9]$/.test(k) && s.renders[+k - 1]) { state.view = s.renders[+k - 1].id; renderViewer(); }
+  else if (k === 'c' && s.renders.length > 1) { state.view = 'cmp'; renderViewer(); }
+  else if (k === 'b') { state.view = 'sketch'; renderViewer(); }
+  else if (k === 's' && r) toggleVideo(s, r.id);
+  else if (k === 'a') $('#d-status [data-s=aprobado]').click();
+  else if (k === 'x') $('#d-status [data-s=cambios]').click();
+  else if (k === '?') toast(KEYS_HELP, 8000);
+  else return;
+  e.preventDefault();
+});
+
 // Orden para el chat de Claude del episodio (o uno nuevo): qué shot, dónde leerlo, sus vecinos, refs elegidas del episodio y cómo devolver el render.
 async function magnificOrder(s) {
   const b = state.board, i = state.shots.indexOf(s), p = projectOf(b);
@@ -957,7 +1021,7 @@ async function editInPhotoshop(s, which) {
 async function openShot(s, keepView = false) {
   if (!s) return closeShot();
   const changed = state.open?.id !== s.id;
-  state.open = s; setHash(s);
+  state.open = s; setHash(s); if (isNew(s)) { markSeen(s); renderBoard(); }
   if (changed || !keepView || !s.renders.some(r => r.id === state.view)) state.view = latestRender(s)?.id ?? 'sketch';
   $('#detail').hidden = false;
   if (changed || !keepView) {

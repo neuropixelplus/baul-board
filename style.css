@@ -197,3 +197,8 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .selbar[hidden] { display: none; }
 .d-clip video { width: 100%; border-radius: 6px; background: #000; }
 .compare figcaption select { font-size: 12px; padding: 2px 6px; }
+
+.card.new { border-color: #4f8fd6; }
+.card.new .code::after { content: " • nuevo"; color: #4f8fd6; font-size: 11px; font-weight: 600; }
+.filters button.hot { color: #4f8fd6; border-color: #4f8fd6; }
+.card .same { color: #e0a440; }

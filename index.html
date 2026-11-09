@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NP+ RefBoards</title>
-<link rel="stylesheet" href="style.css?v=202611090810">
+<link rel="stylesheet" href="style.css?v=202611090900">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="config.js?v=202611090810"></script>
+<script src="config.js?v=202611090900"></script>
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -37,6 +37,8 @@
       <button data-f="cambios">Cambios</button>
       <button data-f="aprobado">Aprobado</button>
       <button data-f="video" title="Solo los shots con un render ★ para video">★ Video</button>
+      <button data-f="nuevo" title="Renders o comentarios de otros desde tu última visita">Nuevo</button>
+      <button id="seen-all" class="ghost small" title="Marcar todo como visto">✓ Visto</button>
     </div>
     <div class="filters" id="kinds" title="Prende uno o varios tipos; los demás se ocultan">
       <button data-k="todos" class="on" title="Mostrar todos los tipos">Todo</button>
@@ -89,6 +91,7 @@
     </div>
     <button id="d-prev" class="ghost" title="Anterior (←)">‹</button>
     <button id="d-next" class="ghost" title="Siguiente (→)">›</button>
+    <button id="d-keys" class="ghost" title="Atajos: 1–9 versión · C comparar · B boceto · S ★ · A aprobar · X cambios · ←/→">?</button>
     <button id="d-close" class="ghost" title="Cerrar (Esc)">✕</button>
   </div>
   <div class="detail-body">
@@ -126,6 +129,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611090810"></script>
+<script src="app.js?v=202611090900"></script>
 </body>
 </html>
