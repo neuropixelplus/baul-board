@@ -248,7 +248,7 @@ $('#anim-file').onchange = async e => {
 async function loadShots() {
   if (!state.board) { $('#board').querySelectorAll('.card').forEach(c => c.remove()); return; }
   const { data, error } = await sb.from('shots')
-    .select('*, renders(*), comments(*)').eq('board_id', state.board.id).is('deleted_at', null).order('sort').order('code');
+    .select('*, renders!renders_shot_id_fkey(*), comments(*)').eq('board_id', state.board.id).is('deleted_at', null).order('sort').order('code');
   if (error) return toast(error.message);
   for (const s of data) {
     // nextV cuenta también los renders en la papelera, para no repetir versión al restaurar.
@@ -551,7 +551,7 @@ async function openTrash() {
   const [{ data: shots, error: e1 }, { data: rends, error: e2 }] = await Promise.all([
     sb.from('shots').select('id, code, sketch_path, deleted_at').eq('board_id', state.board.id)
       .not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
-    sb.from('renders').select('id, version, path, deleted_at, shots!inner(code, board_id, deleted_at)').eq('shots.board_id', state.board.id)
+    sb.from('renders').select('id, version, path, deleted_at, shots!renders_shot_id_fkey!inner(code, board_id, deleted_at)').eq('shots.board_id', state.board.id)
       .not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
   ]);
   if (e1 || e2) return toast((e1 || e2).message, 5000);
