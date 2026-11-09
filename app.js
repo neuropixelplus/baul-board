@@ -216,13 +216,16 @@ async function syncAnimatic() {
   v.src = (await signedUrls([anim.path]))(anim.path);
   await new Promise((ok, ko) => { v.onloadeddata = ok; v.onerror = () => ko(new Error('No pude abrir el video del animatic')); });
   const feats = await Promise.all(shots.map(s => composition(s.sketch_path)));
-  const best = shots.map(() => ({ t: null, sc: -1 }));
+  const best = shots.map(() => ({ t: null, sc: -1, j: 0 })), F = [];
+  const dot = (a, c) => { let x = 0; for (let k = 0; k < a.length; k++) x += a[k] * c[k]; return x; };
   for (let t = 0; t < v.duration; t += .25) {
     v.currentTime = t; await new Promise(r => { v.onseeked = r; });
-    const f = featOf(v);
-    feats.forEach((g, i) => { if (!g) return; let sc = 0; for (let k = 0; k < g.length; k++) sc += g[k] * f[k]; if (sc > best[i].sc) best[i] = { t, sc }; });
+    const f = featOf(v); F.push(f);
+    feats.forEach((g, i) => { if (!g) return; const sc = dot(g, f); if (sc > best[i].sc) best[i] = { t, sc, j: F.length - 1 }; });
     if (Math.round(t * 4) % 40 === 0) toast(`Sincronizando animatic… ${Math.round(t / v.duration * 100)}%`, 4000);
   }
+  // El boceto suele ser un cuadro del medio del plano: se retrocede mientras la imagen siga siendo la misma toma (sin corte).
+  for (const b of best) { if (b.t == null) continue; let j = b.j; while (j > 0 && dot(F[j - 1], F[b.j]) > .45) j--; b.t = j * .25; }
   // Solo cuenta si el boceto se parece de verdad a un cuadro (los bocetos sacados del animatic dan ~1).
   anim.times = Object.fromEntries(shots.map((s, i) => [s.code, best[i]]).filter(([, b]) => b.sc > .6).map(([c, b]) => [c, Math.round(b.t * 100) / 100]));
   const { error } = await sb.storage.from(BUCKET).upload(`${animDir(state.board)}/animatic_${stamp()}.json`,
@@ -830,7 +833,7 @@ $('#search').oninput = e => { state.q = e.target.value.trim().toLowerCase(); ren
 state.sel = new Set(); let selLast = null;
 function selectCard(s, range) {
   if (range && selLast) {
-    const ids = state.shots.map(x => x.id), a = ids.indexOf(selLast), b = ids.indexOf(s.id);
+    const ids = [...document.querySelectorAll('.card')].map(c => c.dataset.id), a = ids.indexOf(selLast), b = ids.indexOf(s.id);
     ids.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(id => state.sel.add(id));
   } else state.sel.has(s.id) ? state.sel.delete(s.id) : state.sel.add(s.id);
   selLast = s.id; paintSel();
