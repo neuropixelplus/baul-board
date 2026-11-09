@@ -224,3 +224,58 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 #anim-over { position: absolute; inset: 0 0 48px 0; width: 100%; height: calc(100% - 48px); object-fit: contain; pointer-events: none; }
 #anim-video[hidden] + #anim-over { display: none; }
 #anim-over-btn.on { color: var(--accent); border-color: var(--accent); }
+
+/* avisos */
+.bell { position: relative; padding: 4px 10px; }
+#bell-n { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; border-radius: 9px; background: #ff3b30; color: #fff; font-size: 11px; line-height: 18px; text-align: center; padding: 0 4px; }
+#bell-n[hidden] { display: none; }
+.notif { position: fixed; top: 56px; right: 12px; z-index: 15; width: min(420px, calc(100vw - 24px)); max-height: 70vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 6px; box-shadow: 0 10px 30px #0008; }
+.notif[hidden] { display: none; }
+.notif .row { display: flex; gap: 6px; align-items: center; }
+.notif .nt { display: grid; gap: 2px; text-align: left; background: var(--card); color: var(--text); font-weight: 400; border-left: 3px solid transparent; }
+.notif .nt.new { border-left-color: var(--accent); }
+/* dibujo */
+.modal.draw { padding: 8px; }
+.draw-box { background: var(--panel); border-radius: 10px; padding: 10px; width: min(98vw, 1400px); max-height: 96vh; display: grid; gap: 8px; grid-template-rows: auto 1fr auto; }
+.draw-box .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.draw-box textarea { flex: 1; min-width: 180px; }
+.draw-stage { min-height: 0; display: grid; place-items: center; overflow: hidden; }
+.draw-stage canvas { max-width: 100%; max-height: calc(96vh - 140px); touch-action: none; cursor: crosshair; border-radius: 4px; }
+.sw { width: 26px; height: 26px; border-radius: 13px; padding: 0; border: 2px solid transparent; }
+.sw.on { border-color: var(--text); }
+.cm-draw { display: block; max-width: 100%; margin-top: 6px; border-radius: 6px; cursor: zoom-in; }
+/* historial */
+#history { margin-top: 14px; }
+#history summary { cursor: pointer; font-weight: 600; }
+.hist { display: grid; gap: 6px; margin-top: 8px; font-size: 13px; }
+.hist .ev { display: grid; grid-template-columns: 22px 1fr auto; gap: 6px; align-items: start; }
+.hist .i { text-align: center; }
+/* celular: solo lo de revisar */
+@media (max-width: 700px) {
+  .top { gap: 6px; padding: 8px 10px; }
+  .top .brand, #new-project, #new-board, .zoom, #export-picks, #trash, .top > label.btn, #me, #kinds, #logout, #seen-all { display: none; }
+  #proj-select { max-width: 30vw; }
+  #search { order: 10; flex: 1 1 100%; }
+  #filters { order: 11; flex: 1 1 100%; overflow-x: auto; flex-wrap: nowrap; }
+  #filters button { flex: none; }
+  .board { grid-template-columns: 1fr !important; padding: 10px; gap: 10px; }
+  .notif { top: 100px; }
+  .detail-head { padding: 8px 10px; gap: 6px; }
+  .detail-head .d-title, #d-scene, #d-kind, #d-gen, #d-keys, .detail-head .grow { display: none; }
+  .detail-head .d-code { width: 120px; }
+  #d-status { position: fixed; left: 0; right: 0; bottom: 0; z-index: 12; justify-content: center; gap: 6px; padding: 8px 8px calc(8px + env(safe-area-inset-bottom)); background: var(--panel); border-top: 1px solid var(--line); }
+  #d-status button { flex: 1; padding: 10px 4px; }
+  .detail-body { padding-bottom: 70px; }
+  #swap-render, #out-render, #del-render { display: none; }
+  .view-tabs { overflow-x: auto; flex-wrap: nowrap; }
+  .view-tabs button { flex: none; }
+  #comment-text { font-size: 16px; }
+  .compare img { flex: none; height: auto; max-height: 62vh; }
+  .compare .wipe { flex: none; aspect-ratio: 16 / 9; }
+  .t-ps { display: none !important; }
+  .detail-body { display: block; }
+  .viewer { padding: 8px; }
+  .neighbors img { width: 72px; }
+  /* en el celular la tarjeta solo abre el detalle: sin botones encima */
+  .card .tools, .card .use, .card .mv, .card .del { display: none !important; }
+}

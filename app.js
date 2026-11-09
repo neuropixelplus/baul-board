@@ -79,7 +79,7 @@ async function boot() {
   $('#me').textContent = m.name || email;
   $('#login').hidden = true; $('#app').hidden = false;
   await loadBoards();
-  subscribe();
+  subscribe(); loadNotifs(); subscribeNotifs();
 }
 function showLogin(msg = '') { $('#login').hidden = false; $('#app').hidden = true; $('#login-msg').textContent = msg; }
 $('#login-form').onsubmit = async e => {
@@ -1215,7 +1215,7 @@ async function openShot(s, keepView = false) {
   $('#d-status').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.s === s.status));
   if (changed || !keepView) renderClip(s);
   await renderViewer();
-  renderComments();
+  renderComments(); renderHistory(s);
 }
 function closeShot() { state.open = null; $('#detail').hidden = true; $('#d-clip video').pause(); setHash(); }
 $('#d-close').onclick = closeShot;
@@ -1280,6 +1280,8 @@ async function renderViewer() {
   $('#out-render').hidden = !r; $('#out-render').onclick = () => { closeShot(); renderToCard(s, r.id); };
   $('#vid-render').hidden = !r; $('#vid-render').classList.toggle('on', r?.id === s.video_render_id);
   $('#vid-render').textContent = r?.id === s.video_render_id ? '★ Va al video' : '☆ Para video'; $('#vid-render').onclick = () => toggleVideo(s, r.id);
+  const drawP = r ? r.path : state.view === 'sketch' ? s.sketch_path : null;
+  $('#draw-render').hidden = !drawP; $('#draw-render').onclick = () => openDraw(s, drawP, r?.id ?? null, r ? `render ${r.version}` : 'boceto');
   renderNeighbors(s);
   $('#swap-render').hidden = !r || !s.sketch_path; $('#swap-render').onclick = () => swapSketch(s, r);
   // Editar / Reemplazar van encima de cada imagen (imgTools).
@@ -1350,10 +1352,16 @@ function renderComments() {
     <div class="cm ${c.resolved ? 'resolved' : ''}">
       <div class="h"><b>${esc(c.author)}</b>${c.render_id ? `<span>sobre ${esc(ver(c.render_id) ?? 'render')}</span>` : ''}<span>${new Date(c.created_at).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' })}</span>
         <span class="grow"></span><button class="ghost" data-res="${c.id}">${c.resolved ? 'Reabrir' : 'Resuelto'}</button></div>
-      <p>${esc(c.body)}</p>
+      <p>${esc(c.body.replace(DRAW_RE, ''))}</p>${DRAW_RE.test(c.body) ? `<img class="cm-draw" data-p="${esc(c.body.match(DRAW_RE)[1])}" alt="dibujo" title="Ver el dibujo grande">` : ''}
     </div>`).join('') || '<p class="muted small">Sin comentarios.</p>';
+  const imgs = [...$('#comments').querySelectorAll('.cm-draw')];
+  if (imgs.length) signedUrls(imgs.map(i => i.dataset.p)).then(u => imgs.forEach(i => i.src = u(i.dataset.p)));
 }
 $('#comments').onclick = async e => {
+  if (e.target.classList.contains('cm-draw')) {
+    const lb = document.createElement('div'); lb.className = 'lightbox'; lb.innerHTML = `<img src="${e.target.src}">`;
+    lb.onclick = () => lb.remove(); return document.body.appendChild(lb);
+  }
   const id = e.target.dataset?.res; if (!id) return;
   const c = state.open.comments.find(x => x.id === id);
   const { error } = await sb.from('comments').update({ resolved: !c.resolved }).eq('id', id);
@@ -1401,6 +1409,182 @@ $('#up-frames').onchange = async e => {
   await patchShot({ extra_frames: [...(state.open.extra_frames || []), ...paths] }); loadShots();
 };
 dropTarget($('#compare'), files => uploadRenders(state.open, files));
+
+// ---------- avisos ----------
+// Renders, comentarios y videos nuevos de otros (Claude incluido), en todos los tableros. 🔔 muestra los últimos 7 días;
+// si diste permiso, el sistema también avisa mientras el tablero está abierto (aunque estés en otra pestaña).
+const DRAW_RE = /\n?\[dibujo\] (\S+)/;
+const notif = { items: [], seen: Date.now() - 864e5 };
+try { notif.seen = +localStorage.getItem('notifSeen') || notif.seen; } catch {}
+const isMine = who => !who || who === state.me?.name || who === state.me?.email;
+const ago = t => { const m = Math.round((Date.now() - Date.parse(t)) / 6e4);
+  return m < 1 ? 'ahora' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} d`; };
+function notifItem(kind, row, shot) {
+  const who = kind === 'comment' ? row.author : row.created_by;
+  const body = kind === 'comment' ? (DRAW_RE.test(row.body) ? '✎ dibujó: ' : 'comentó: ') + row.body.replace(DRAW_RE, '').trim()
+    : kind === 'render' ? `subió el render ${row.version}` : `subió el video ${row.version}`;
+  return { id: kind + row.id, kind, who, body, at: row.created_at, shot_id: shot.id, code: shot.code, board_id: shot.board_id };
+}
+async function loadNotifs() {
+  const since = new Date(Date.now() - 7 * 864e5).toISOString();
+  const sh = 'id, code, board_id, deleted_at';
+  const [r, c, v] = await Promise.all([
+    sb.from('renders').select(`id, version, created_by, created_at, shot:shots!renders_shot_id_fkey(${sh})`).gte('created_at', since).is('deleted_at', null).order('created_at', { ascending: false }).limit(150),
+    sb.from('comments').select(`id, author, body, created_at, shot:shots(${sh})`).gte('created_at', since).order('created_at', { ascending: false }).limit(150),
+    sb.from('clips').select(`id, version, created_by, created_at, shot:shots(${sh})`).gte('created_at', since).is('deleted_at', null).order('created_at', { ascending: false }).limit(50)]);
+  const add = (kind, res) => (res.data || []).filter(x => x.shot && !x.shot.deleted_at && !isMine(kind === 'comment' ? x.author : x.created_by))
+    .map(x => notifItem(kind, x, x.shot));
+  notif.items = [...add('render', r), ...add('comment', c), ...add('clip', v)].sort((a, b) => b.at.localeCompare(a.at));
+  paintBell();
+}
+function paintBell() {
+  const n = notif.items.filter(x => Date.parse(x.at) > notif.seen).length;
+  $('#bell-n').textContent = n > 99 ? '99+' : n; $('#bell-n').hidden = !n;
+  if (!$('#notif').hidden) renderNotifs();
+}
+function renderNotifs() {
+  const where = id => { const b = state.boards.find(x => x.id === id); return b ? `${projectOf(b).id !== BAUL ? projectOf(b).name + ' · ' : ''}EP${b.episode} ${b.part ? 'P' + b.part : 'Refs'}` : ''; };
+  const perm = 'Notification' in window ? Notification.permission : 'no';
+  $('#notif').innerHTML = `<div class="row"><b>Avisos</b><span class="muted small">· 7 días</span><span class="grow"></span>
+      ${perm === 'default' ? '<button class="ghost small" data-perm>Avisos del sistema</button>' : ''}</div>
+    ${notif.items.slice(0, 80).map(n => `<button class="nt ${Date.parse(n.at) > notif.seen ? 'new' : ''}" data-n="${n.id}">
+      <span><b>${esc(n.who)}</b> ${esc(n.body.length > 140 ? n.body.slice(0, 140) + '…' : n.body)}</span>
+      <span class="muted small">${esc(n.code)} · ${where(n.board_id)} · ${ago(n.at)}</span></button>`).join('') || '<p class="muted small">Nada nuevo en 7 días.</p>'}`;
+}
+$('#bell').onclick = e => {
+  e.stopPropagation();
+  const p = $('#notif'); p.hidden = !p.hidden;
+  if (p.hidden) return;
+  renderNotifs();
+  // Lo que viste al abrir queda leído; se sigue resaltando hasta cerrar el panel.
+  notif.seen = Date.now(); try { localStorage.setItem('notifSeen', notif.seen); } catch {}
+  $('#bell-n').hidden = true;
+};
+document.addEventListener('click', e => { if (!e.target.closest('#notif, #bell')) $('#notif').hidden = true; });
+$('#notif').onclick = async e => {
+  if (e.target.closest('[data-perm]')) { await Notification.requestPermission(); return renderNotifs(); }
+  const n = notif.items.find(x => x.id === e.target.closest('.nt')?.dataset.n); if (!n) return;
+  $('#notif').hidden = true; openFromNotif(n);
+};
+async function openFromNotif(n) {
+  const b = state.boards.find(x => x.id === n.board_id); if (!b) return;
+  if (state.board?.id !== b.id) {
+    closeShot(); state.project = projectOf(b); state.ep = b.episode; state.board = b;
+    fillSelects(); setHash(); await loadAnimatic(); await loadShots();
+  }
+  const s = state.shots.find(x => x.id === n.shot_id);
+  if (s) { openShot(s); if (n.kind === 'clip') { state.view = 'video'; renderViewer(); } } else toast(`${n.code} ya no está en el tablero`);
+}
+async function onInsert(kind, row) {
+  if (row.deleted_at || isMine(kind === 'comment' ? row.author : row.created_by)) return;
+  let shot = state.shots.find(s => s.id === row.shot_id);
+  if (!shot) ({ data: shot } = await sb.from('shots').select('id, code, board_id').eq('id', row.shot_id).maybeSingle());
+  if (!shot) return;
+  const n = notifItem(kind, row, shot);
+  if (notif.items.some(x => x.id === n.id)) return;
+  notif.items.unshift(n); paintBell();
+  toast(`🔔 ${n.who} ${n.body.slice(0, 80)} · ${n.code}`, 5000);
+  if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+    try {
+      const sys = new Notification(`${n.code} · ${n.who}`, { body: n.body.slice(0, 200), tag: n.id, icon: 'icon.svg' });
+      sys.onclick = () => { window.focus(); sys.close(); openFromNotif(n); };
+    } catch {}
+  }
+}
+function subscribeNotifs() {
+  sb.channel('notifs')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'renders' }, p => onInsert('render', p.new))
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'comments' }, p => onInsert('comment', p.new))
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'clips' }, p => onInsert('clip', p.new))
+    .subscribe();
+  // El celular corta la conexión en segundo plano: al volver se recarga la lista.
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) loadNotifs(); });
+}
+
+// ---------- dibujar sobre una imagen ----------
+// Se guarda la imagen con el dibujo encima (jpg) y queda como comentario con "[dibujo] <ruta>";
+// Claude la baja con `shot` y la ve tal cual.
+async function openDraw(s, path, renderId, label) {
+  const src = (await signedUrls([path]))(path);
+  const img = new Image(); img.crossOrigin = 'anonymous';
+  try { await new Promise((ok, ko) => { img.onload = ok; img.onerror = ko; img.src = src; }); } catch { return toast('No se pudo cargar la imagen'); }
+  const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+  const W = Math.round(img.naturalWidth * k), H = Math.round(img.naturalHeight * k);
+  const m = document.createElement('div'); m.className = 'modal draw';
+  m.innerHTML = `<div class="draw-box">
+    <div class="row"><b>✎ ${esc(s.code)} · ${esc(label)}</b><span class="grow"></span>
+      ${['#ff3b30', '#ffd60a', '#32d74b', '#0a84ff', '#ffffff'].map((c, i) => `<button class="sw ${i ? '' : 'on'}" data-c="${c}" style="background:${c}" aria-label="Color"></button>`).join('')}
+      <button class="ghost small" data-w title="Grosor">●</button><button class="ghost small" data-undo>↶</button><button class="ghost small" data-clear>Borrar</button></div>
+    <div class="draw-stage"><canvas width="${W}" height="${H}"></canvas></div>
+    <div class="row"><textarea rows="2" placeholder="Qué hay que cambiar (opcional)"></textarea>
+      <button class="ghost" data-close>Cancelar</button><button data-save>Guardar como comentario</button></div></div>`;
+  document.body.appendChild(m);
+  const cv = m.querySelector('canvas'), g = cv.getContext('2d');
+  const strokes = []; let color = '#ff3b30', width = 6, cur = null;
+  const paint = () => {
+    g.drawImage(img, 0, 0, W, H); g.lineCap = g.lineJoin = 'round';
+    for (const st of strokes) { g.strokeStyle = st.c; g.lineWidth = st.w; g.beginPath(); st.p.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); if (st.p.length === 1) g.lineTo(st.p[0][0] + .1, st.p[0][1]); g.stroke(); }
+  };
+  paint();
+  const pt = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height]; };
+  cv.onpointerdown = e => { try { cv.setPointerCapture(e.pointerId); } catch {} cur = { c: color, w: width * W / cv.getBoundingClientRect().width, p: [pt(e)] }; strokes.push(cur); paint(); };
+  cv.onpointermove = e => { if (cur) { cur.p.push(pt(e)); paint(); } };
+  cv.onpointerup = cv.onpointercancel = () => { cur = null; };
+  m.onclick = async e => {
+    const t = e.target;
+    if (t.dataset.c) { color = t.dataset.c; m.querySelectorAll('.sw').forEach(b => b.classList.toggle('on', b === t)); }
+    else if (t.dataset.w !== undefined) { width = width === 6 ? 14 : width === 14 ? 3 : 6; t.style.fontSize = (8 + width) + 'px'; }
+    else if (t.dataset.undo !== undefined) { strokes.pop(); paint(); }
+    else if (t.dataset.clear !== undefined) { strokes.length = 0; paint(); }
+    else if (t.dataset.close !== undefined) m.remove();
+    else if (t.dataset.save !== undefined) {
+      const text = m.querySelector('textarea').value.trim();
+      if (!strokes.length && !text) return toast('Dibuja algo o escribe qué cambiar');
+      t.disabled = true;
+      try {
+        const blob = await new Promise(ok => cv.toBlob(ok, 'image/jpeg', .88));
+        const p = await uploadFile(blob, `${basePath(state.board, s.code)}/dibujo_${stamp()}.jpg`);
+        const { data, error } = await sb.from('comments').insert({ shot_id: s.id, render_id: renderId, author: state.me.name || state.me.email,
+          body: `${text || 'Ver dibujo'}\n[dibujo] ${p}` }).select().single();
+        if (error) throw error;
+        if (!s.comments.some(c => c.id === data.id)) s.comments.push(data);
+        m.remove(); renderComments(); renderBoard(); toast('Dibujo guardado como comentario');
+      } catch (err) { t.disabled = false; toast(err.message, 5000); }
+    }
+  };
+}
+
+// ---------- historial del shot ----------
+// Se arma con lo que ya está guardado: alta, renders (también los eliminados), comentarios, videos y aprobación.
+async function renderHistory(s) {
+  const box = $('#history'); if (!box.open) return;
+  box.querySelector('.hist').innerHTML = '<p class="muted small">Cargando…</p>';
+  const { data: gone } = await sb.from('renders').select('version, created_by, created_at, deleted_at').eq('shot_id', s.id).not('deleted_at', 'is', null);
+  if (state.open?.id !== s.id) return;
+  const ev = [[s.created_at, '＋', 'Tarjeta creada']];
+  for (const r of s.renders) ev.push([r.created_at, '🖼', `Render ${r.version}${r.created_by ? ' · ' + r.created_by : ''}${r.source ? ' · ' + r.source : ''}${r.id === s.video_render_id ? ' · ★ para video' : ''}${r.id === s.approved_render_id ? ' · ✓ elegido' : ''}`]);
+  for (const r of gone || []) { ev.push([r.created_at, '🖼', `Render ${r.version}${r.created_by ? ' · ' + r.created_by : ''}`]); ev.push([r.deleted_at, '✕', `Render ${r.version} eliminado`]); }
+  for (const c of s.comments) ev.push([c.created_at, DRAW_RE.test(c.body) ? '✎' : '💬', `${c.author}: ${c.body.replace(DRAW_RE, ' (dibujo)').trim()}${c.resolved ? ' · resuelto' : ''}`]);
+  for (const c of s.clips || []) ev.push([c.created_at, '🎬', `Video ${c.version}${c.created_by ? ' · ' + c.created_by : ''}${c.source ? ' · ' + c.source : ''}`]);
+  if (s.approved_at) ev.push([s.approved_at, '✓', approvedBy(s)]);
+  ev.sort((a, b) => (b[0] || '').localeCompare(a[0] || ''));
+  box.querySelector('.hist').innerHTML = ev.filter(e => e[0]).map(([t, i, txt]) =>
+    `<div class="ev"><span class="i">${i}</span><span>${esc(txt.length > 160 ? txt.slice(0, 160) + '…' : txt)}</span><span class="muted small">${new Date(t).toLocaleString('es', { dateStyle: 'short', timeStyle: 'short' })}</span></div>`).join('')
+    + `<p class="muted small">Estado actual: ${esc(s.status)}${s.video_status ? ' · video ' + esc(s.video_status) : ''}</p>`;
+}
+$('#history').ontoggle = () => state.open && renderHistory(state.open);
+
+// ---------- celular ----------
+// Deslizar el visor a los lados pasa al shot anterior / siguiente (salvo con la imagen ampliada).
+{
+  let x0 = null, y0 = 0;
+  $('#compare').addEventListener('touchstart', e => { x0 = e.touches.length === 1 && !e.target.closest('.zoomed, .wipe, video') ? e.touches[0].clientX : null; y0 = e.touches[0].clientY; }, { passive: true });
+  $('#compare').addEventListener('touchend', e => {
+    if (x0 == null) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+    if (Math.abs(dx) > 70 && Math.abs(dx) > 2 * Math.abs(dy)) step(dx < 0 ? 1 : -1);
+  }, { passive: true });
+}
 
 // ---------- tiempo real ----------
 function subscribe() {

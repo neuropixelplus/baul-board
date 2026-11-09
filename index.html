@@ -4,10 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NP+ RefBoards</title>
-<link rel="stylesheet" href="style.css?v=202611091100">
+<meta name="theme-color" content="#26262a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="RefBoards">
+<link rel="stylesheet" href="style.css?v=202611091500">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="config.js?v=202611091100"></script>
+<script src="config.js?v=202611091500"></script>
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -53,9 +59,11 @@
     <button id="export-picks" class="ghost" title="Bajar un .zip con los renders ★ de esta parte, numerados por secuencia, más lista.csv para el director">⇩ Exportar ★</button>
     <button id="trash" class="ghost" title="Shots y renders eliminados">Papelera</button>
     <label class="btn">+ Shots<input id="add-shots" type="file" accept="image/*" multiple hidden></label>
+    <button id="bell" class="ghost bell" title="Avisos: renders, comentarios y videos nuevos">🔔<span id="bell-n" hidden></span></button>
     <span id="me" class="muted"></span>
     <button id="logout" class="ghost">Salir</button>
   </header>
+  <div id="notif" class="notif" hidden></div>
   <div id="progress" class="progress" hidden></div>
   <section id="animatic" class="animatic" hidden>
     <div class="row"><b>Animatic</b><span id="anim-name" class="muted small"></span><span class="grow"></span>
@@ -110,6 +118,7 @@
         <label class="btn small ghost">+ Frames<input id="up-frames" type="file" accept="image/*" multiple hidden></label>
         <span class="grow"></span>
         <span id="render-meta" class="muted"></span>
+        <button id="draw-render" class="ghost small" hidden title="Dibujar encima y dejarlo como comentario">✎ Dibujar</button>
         <button id="vid-render" class="ghost small" hidden title="Elegir este render para hacer el video en Magnific">☆ Para video</button>
         <button id="swap-render" class="ghost small" hidden title="Cambiar de lugar boceto y render">⇄ Invertir</button>
         <button id="out-render" class="ghost small" hidden title="Quitar este render del shot y dejarlo como tarjeta propia">⇱ Sacar a tarjeta</button>
@@ -130,10 +139,11 @@
         <textarea id="comment-text" rows="2" placeholder="Comentar…" required></textarea>
         <div class="row"><label class="muted small"><input id="comment-on-render" type="checkbox" checked> sobre el render visible</label><button>Enviar</button></div>
       </form>
+      <details id="history"><summary>Historial</summary><div class="hist"></div></details>
     </aside>
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611091100"></script>
+<script src="app.js?v=202611091500"></script>
 </body>
 </html>
