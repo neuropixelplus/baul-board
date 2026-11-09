@@ -68,21 +68,30 @@ async function uploadFile(file, path) {
 const basePath = (b, code) => `${b.project_id && b.project_id !== BAUL ? projectOf(b).slug + '/' : ''}EP${b.episode}/P${b.part}/${slug(code)}`;
 
 // ---------- auth ----------
+// Mientras arranca se ve "Cargando…"; si el servidor no contesta (sin señal, VPN) se avisa en vez de quedar en negro.
+setTimeout(() => { if (!$('#booting').hidden) $('#boot-msg').innerHTML = 'No se pudo conectar con el servidor. Revisa la señal o la VPN. <button onclick="location.reload()">Reintentar</button>'; }, 12000);
 async function boot() {
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) return showLogin();
-  const email = session.user.email.toLowerCase();
-  const { data: m } = await sb.from('members').select('*').eq('email', email).maybeSingle();
-  // Sin cerrar sesión: cuando lo agreguen a members, basta con recargar.
-  if (!m) { showLogin(`${email} entró, pero no tiene acceso todavía. Pídeselo a René y recarga la página.`); $('#login-form').hidden = true; return; }
-  state.me = m;
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return showLogin();
+    const email = session.user.email.toLowerCase();
+    const { data: m, error } = await sb.from('members').select('*').eq('email', email).maybeSingle();
+    if (error) throw error;
+    // Sin cerrar sesión: cuando lo agreguen a members, basta con recargar.
+    if (!m) {
+      showLogin(`${email} entró, pero no tiene acceso. Si te equivocaste de correo, sal y entra con el tuyo.`);
+      $('#login-form').hidden = true; $('#code-form').hidden = true; $('#switch-user').hidden = false; return;
+    }
+    state.me = m;
+  } catch (e) { $('#boot-msg').innerHTML = `No se pudo entrar: ${esc(e.message)} <button onclick="location.reload()">Reintentar</button>`; return; }
+  const m = state.me, email = m.email;
   $('#me').textContent = m.name || email;
-  $('#login').hidden = true; $('#app').hidden = false;
+  $('#booting').hidden = true; $('#login').hidden = true; $('#app').hidden = false;
   await loadBoards();
   subscribe(); loadNotifs(); subscribeNotifs(); initPush();
 }
 function showLogin(msg = '') {
-  $('#login').hidden = false; $('#app').hidden = true;
+  $('#booting').hidden = true; $('#login').hidden = false; $('#app').hidden = true;
   // Si el enlace del correo ya estaba usado o vencido, Supabase vuelve con #error_description=… en la dirección.
   const err = new URLSearchParams(location.hash.slice(1)).get('error_description');
   $('#login-msg').textContent = msg || (err ? 'El enlace ya se usó o venció. Pide uno nuevo y escribe el código que llega en el correo.' : '');
@@ -102,7 +111,9 @@ $('#code-form').onsubmit = async e => {
   if (error) $('#login-msg').textContent = /expired|invalid/i.test(error.message) ? 'Código vencido o incorrecto: pide uno nuevo.' : error.message;
 };
 $('#logout').onclick = async () => { await sb.auth.signOut(); location.reload(); };
-sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN' && !state.me) boot(); });
+// boot() va fuera del aviso: llamar a sb.auth dentro de onAuthStateChange se traba esperando el mismo candado.
+sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_IN' && !state.me) setTimeout(boot, 0); });
+$('#switch-user').onclick = async () => { await sb.auth.signOut(); location.hash = ''; location.reload(); };
 
 // ---------- proyectos y tableros ----------
 // Proyecto → Episodio → Parte. La Parte 0 de cada episodio es su tablero de Refs (character sheets y fondos).

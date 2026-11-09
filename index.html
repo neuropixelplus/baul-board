@@ -10,12 +10,13 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="RefBoards">
-<link rel="stylesheet" href="style.css?v=202611091710">
+<link rel="stylesheet" href="style.css?v=202611091735">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="config.js?v=202611091710"></script>
+<script src="config.js?v=202611091735"></script>
 </head>
 <body>
+<div id="booting" class="login"><div class="login-box"><h1>NP+ RefBoards</h1><p id="boot-msg" class="muted">Cargando…</p></div></div>
 <div id="login" class="login" hidden>
   <div class="login-box">
     <h1>NP+ RefBoards</h1>
@@ -29,6 +30,7 @@
       <button>Entrar</button>
     </form>
     <p id="login-msg" class="muted"></p>
+    <button id="switch-user" class="ghost" hidden>Salir y entrar con otro correo</button>
   </div>
 </div>
 
@@ -148,6 +150,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611091710"></script>
+<script src="app.js?v=202611091735"></script>
 </body>
 </html>
