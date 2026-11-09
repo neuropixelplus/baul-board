@@ -190,3 +190,10 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .neighbors { display: flex; gap: 8px; }
 .neighbors button { flex: 1; display: flex; align-items: center; gap: 8px; background: var(--panel); color: var(--text); border: 1px solid var(--line); padding: 4px; font-weight: 500; }
 .neighbors img { width: 120px; aspect-ratio: 16/9; object-fit: cover; border-radius: 4px; background: #111; }
+
+#search { width: 220px; }
+.card.sel { outline: 3px solid #4f8fd6; outline-offset: 2px; }
+.selbar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 20; display: flex; gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; box-shadow: 0 6px 24px rgba(0,0,0,.5); }
+.selbar[hidden] { display: none; }
+.d-clip video { width: 100%; border-radius: 6px; background: #000; }
+.compare figcaption select { font-size: 12px; padding: 2px 6px; }

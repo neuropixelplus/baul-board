@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NP+ RefBoards</title>
-<link rel="stylesheet" href="style.css?v=202611090700">
+<link rel="stylesheet" href="style.css?v=202611090800">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="config.js?v=202611090700"></script>
+<script src="config.js?v=202611090800"></script>
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -46,6 +46,7 @@
       <button data-k="sheet">Sheets</button>
     </div>
     <span class="grow"></span>
+    <input id="search" type="search" placeholder="Buscar código, personaje, nota…" aria-label="Buscar">
     <label class="zoom">Tamaño <input id="zoom" type="range" min="220" max="1200" value="360" title="También: Alt + rueda sobre el tablero"></label>
     <button id="export-picks" class="ghost" title="Bajar un .zip con los renders ★ de esta parte, numerados por secuencia, más lista.csv para el director">⇩ Exportar ★</button>
     <button id="trash" class="ghost" title="Shots y renders eliminados">Papelera</button>
@@ -55,6 +56,7 @@
   </header>
   <section id="animatic" class="animatic" hidden>
     <div class="row"><b>Animatic</b><span id="anim-name" class="muted small"></span><span class="grow"></span>
+      <button id="anim-order" class="ghost small" title="Ordenar las tarjetas según su tiempo en el animatic (se puede deshacer)">⇅ Ordenar por animatic</button>
       <button id="anim-sync" class="ghost small" title="Busca cada boceto en el video y le pone su tiempo">⟳ Sincronizar tarjetas</button>
       <label class="btn ghost small" title="Subir o reemplazar el animatic de esta parte (.mp4, hasta 50 MB)">⇪ Cargar animatic<input id="anim-file" type="file" accept="video/*" hidden></label>
       <button id="anim-toggle" class="ghost small">Ocultar</button></div>
@@ -65,6 +67,13 @@
   </main>
 </div>
 
+<div id="selbar" class="selbar" hidden>
+  <b id="sel-n"></b><span class="muted small">Ctrl/Shift + clic para sumar</span>
+  <button data-a="video" class="ghost small">★ Para video</button>
+  <select id="sel-status" aria-label="Cambiar estado"><option value="">Estado…</option><option value="pendiente">Pendiente</option><option value="generado">Generado</option><option value="cambios">Cambios</option><option value="aprobado">Aprobado</option></select>
+  <button data-a="trash" class="ghost small danger">✕ Papelera</button>
+  <button data-a="clear" class="ghost small">Quitar selección (Esc)</button>
+</div>
 <div id="detail" class="detail" hidden>
   <div class="detail-head">
     <input id="d-code" class="d-code" aria-label="Código del shot">
@@ -100,6 +109,7 @@
       </div>
     </section>
     <aside class="side">
+      <div id="d-clip" class="d-clip" hidden><h3>Animatic <span id="d-clip-t" class="muted"></span></h3><video muted playsinline controls></video></div>
       <h3>Personajes <span class="muted">· quién es quién</span></h3>
       <div id="chars"></div>
       <button id="add-char" class="ghost small">+ Personaje</button>
@@ -116,6 +126,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611090700"></script>
+<script src="app.js?v=202611090800"></script>
 </body>
 </html>

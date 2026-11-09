@@ -268,13 +268,13 @@ const shownRender = s => s.renders.find(r => r.id === s.video_render_id) || late
 
 async function renderBoard() {
   const shots = state.shots.filter(s => (state.filter === 'todos' || (state.filter === 'video' ? s.video_render_id : s.status === state.filter))
-    && (!state.kinds.size || state.kinds.has(s.kind || 'shot')));
+    && (!state.kinds.size || state.kinds.has(s.kind || 'shot')) && matches(s, state.q));
   for (const b of $('#kinds').querySelectorAll('button')) {
     const n = b.dataset.k === 'todos' ? state.shots.length : state.shots.filter(s => (s.kind || 'shot') === b.dataset.k).length;
     b.textContent = `${KIND_LABEL[b.dataset.k]} ${n}`;
   }
   const url = await signedUrls(shots.flatMap(s => [s.sketch_path, shownRender(s)?.path]));
-  const nv = state.shots.filter(s => s.video_render_id).length;
+  const nv = state.shots.filter(s => s.video_render_id).length, durs = animDurations();
   $('#filters [data-f=video]').textContent = `★ Video${nv ? ' ' + nv : ''}`;
   const board = $('#board');
   // Al rehacer las tarjetas la página se acorta un instante: se fija la altura y se vuelve al mismo lugar.
@@ -284,7 +284,7 @@ async function renderBoard() {
     const r = shownRender(s);
     const open = s.comments.filter(c => !c.resolved).length;
     const el = document.createElement('article');
-    el.className = 'card'; el.dataset.id = s.id; el.draggable = true;
+    el.className = 'card' + (state.sel.has(s.id) ? ' sel' : ''); el.dataset.id = s.id; el.draggable = true;
     el.innerHTML = `
       <button class="del" title="Eliminar (va a la papelera)">✕</button>
       <button class="use" title="Usar esta imagen como render de otro shot (elegir de la lista)">↪ render de…</button>
@@ -294,14 +294,14 @@ async function renderBoard() {
         <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span><button class="vstar ${r.id === s.video_render_id ? 'on' : ''}" title="★ Para video: este render va a Magnific video">★</button>` : ''}${imgTools(!!r, true)}</div>
       </div>
       <div class="meta">
-        <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span>${anim.times[s.code] != null ? `<button class="tc" title="Ver en el animatic">▶ ${fmtT(anim.times[s.code])}</button>` : ''}<span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
+        <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span>${anim.times[s.code] != null ? `<button class="tc" title="Ver en el animatic (tiempo · duración del plano)">▶ ${fmtT(anim.times[s.code])}${durs[s.code] ? ` · ${durs[s.code].toFixed(1)}s` : ''}</button>` : ''}<span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
           <select class="kind" title="Tipo">${Object.entries(KIND_ONE).map(([k, l]) => `<option value="${k}" ${k === (s.kind || 'shot') ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="grow"></span>
           <span class="muted small">${s.renders.length} render${s.renders.length === 1 ? '' : 's'}${open ? ` · 💬 ${open}` : ''}</span></div>
         ${s.title ? `<div class="muted">${esc(s.title)}</div>` : ''}
         <div class="who">${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
       </div>`;
     wireTools(el.querySelector('.ph.r'), s, r?.id);
-    el.onclick = e => { if (e.target.closest('.kind, .tools')) return; if (e.target.closest('.vstar')) return toggleVideo(s, r.id); if (e.target.closest('.tc')) return seekAnim(s.code); if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); if (e.target.closest('.mv')) return pickTarget(s, 'move'); openShot(s); };
+    el.onclick = e => { if (e.target.closest('.kind, .tools')) return; if (e.ctrlKey || e.metaKey || e.shiftKey) return selectCard(s, e.shiftKey); if (e.target.closest('.vstar')) return toggleVideo(s, r.id); if (e.target.closest('.tc')) return seekAnim(s.code); if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); if (e.target.closest('.mv')) return pickTarget(s, 'move'); openShot(s); };
     el.querySelector('.kind').onchange = e => setKind(s, e.target.value);
     dropTarget(el, files => uploadRenders(s, files));
     // Desde la franja de abajo (código): reordenar. Desde el render: se mueve solo ese render.
@@ -339,7 +339,7 @@ async function renderBoard() {
     });
     board.appendChild(el);
   }
-  board.style.minHeight = ''; scrollTo(0, y);
+  board.style.minHeight = ''; scrollTo(0, y); paintSel();
 }
 
 const T_SHOT = 'application/x-baul-shot', T_RENDER = 'application/x-baul-render', T_ORDER = 'application/x-baul-order';
@@ -793,6 +793,74 @@ async function renderNeighbors(s) {
   box.onclick = e => { const b = e.target.closest('[data-id]'); if (b) openShot(state.shots.find(x => x.id === b.dataset.id)); };
 }
 
+// ---------- más del animatic: clip del plano, ordenar por el video ----------
+// En el detalle se repite en bucle solo el tramo del animatic de este plano (acción y cámara para la orden de video).
+async function renderClip(s) {
+  const box = $('#d-clip'), v = box.querySelector('video'), t = anim.times[s.code];
+  if (!anim.path || t == null) { box.hidden = true; v.pause(); return; }
+  const d = animDurations()[s.code], end = d ? t + d : t + 2;
+  box.hidden = false; $('#d-clip-t').textContent = `${fmtT(t)}${d ? ` · ${d.toFixed(1)} s` : ''}`;
+  const src = (await signedUrls([anim.path]))(anim.path);
+  if (v.dataset.path !== anim.path) { v.src = src; v.dataset.path = anim.path; }
+  v.ontimeupdate = () => { if (v.currentTime >= end - .04 || v.currentTime < t - .1) v.currentTime = t; };
+  const go = () => { v.currentTime = t; v.play().catch(() => {}); };
+  v.readyState ? go() : (v.onloadeddata = go);
+}
+// Reordena la parte según el tiempo de cada tarjeta en el animatic; las que no aparecen quedan detrás de su vecina anterior.
+const orderByAnimatic = guard(async () => {
+  if (!Object.keys(anim.times).length) return toast('Primero: ⟳ Sincronizar tarjetas');
+  let key = -1;
+  const keyed = state.shots.map((s, i) => { key = anim.times[s.code] ?? key + .001; return { s, key, i }; });
+  const list = keyed.sort((a, b) => a.key - b.key || a.i - b.i).map(x => x.s);
+  const old = new Map(state.shots.map(x => [x.id, x.sort]));
+  const changes = list.map((x, k) => [x.id, (k + 1) * 10]).filter(([id, v]) => old.get(id) !== v);
+  if (!changes.length) return toast('Ya está en el orden del animatic');
+  const apply = pairs => run(...pairs.map(([id, v]) => sb.from('shots').update({ sort: v }).eq('id', id)));
+  await apply(changes);
+  toast(`Ordenadas por el animatic (${changes.length} tarjetas cambiaron de lugar)`, 8000, guard(() => apply(changes.map(([id]) => [id, old.get(id)]))));
+});
+$('#anim-order').onclick = async () => { if (await ask('¿Ordenar las tarjetas de esta parte según el animatic? (se puede deshacer)', 'Ordenar')) orderByAnimatic(); };
+
+// ---------- buscar ----------
+const matches = (s, q) => !q || [s.code, s.title, s.notes, ...s.characters.map(c => `${c.name} ${c.action ?? ''}`)].join(' ').toLowerCase().includes(q);
+$('#search').oninput = e => { state.q = e.target.value.trim().toLowerCase(); renderBoard(); };
+
+// ---------- selección múltiple ----------
+// Ctrl/Shift + clic en tarjetas; la barra de abajo aplica a todas juntas (con Deshacer).
+state.sel = new Set(); let selLast = null;
+function selectCard(s, range) {
+  if (range && selLast) {
+    const ids = state.shots.map(x => x.id), a = ids.indexOf(selLast), b = ids.indexOf(s.id);
+    ids.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(id => state.sel.add(id));
+  } else state.sel.has(s.id) ? state.sel.delete(s.id) : state.sel.add(s.id);
+  selLast = s.id; paintSel();
+}
+function paintSel() {
+  document.querySelectorAll('.card').forEach(c => c.classList.toggle('sel', state.sel.has(c.dataset.id)));
+  const bar = $('#selbar'); bar.hidden = !state.sel.size; $('#sel-n').textContent = `${state.sel.size} seleccionada${state.sel.size === 1 ? '' : 's'}`;
+}
+const selected = () => state.shots.filter(s => state.sel.has(s.id));
+const bulk = guard(async (label, fields, undoFields, list = selected()) => {
+  if (!list.length) return;
+  await run(...list.map(s => sb.from('shots').update(fields(s)).eq('id', s.id)));
+  toast(`${label}: ${list.length} tarjeta${list.length === 1 ? '' : 's'}`, 8000,
+    guard(() => run(...list.map(s => sb.from('shots').update(undoFields(s)).eq('id', s.id)))));
+});
+$('#selbar').onclick = e => {
+  const a = e.target.dataset?.a; if (!a) return;
+  if (a === 'clear') { state.sel.clear(); return paintSel(); }
+  if (a === 'video') return bulk('★ para video', s => ({ video_render_id: s.video_render_id || shownRender(s)?.id || null }), s => ({ video_render_id: s.video_render_id ?? null }));
+  if (a === 'trash') { const list = selected(); state.sel.clear(); paintSel(); return bulk('A la papelera', () => ({ deleted_at: now() }), () => ({ deleted_at: null }), list); }
+};
+$('#sel-status').onchange = e => {
+  const st = e.target.value; e.target.value = ''; if (!st) return;
+  bulk(`Estado ${st}`, s => ({ status: st, ...(st === 'aprobado' && s.renders.length ? { approved_render_id: s.approved_render_id || shownRender(s).id } : {}) }),
+    s => ({ status: s.status, approved_render_id: s.approved_render_id ?? null }));
+};
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && state.sel.size && $('#detail').hidden && !document.querySelector('.modal')) { state.sel.clear(); paintSel(); }
+});
+
 // Orden para el chat de Claude del episodio (o uno nuevo): qué shot, dónde leerlo, sus vecinos, refs elegidas del episodio y cómo devolver el render.
 async function magnificOrder(s) {
   const b = state.board, i = state.shots.indexOf(s), p = projectOf(b);
@@ -896,10 +964,11 @@ async function openShot(s, keepView = false) {
     renderChars();
   }
   $('#d-status').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.s === s.status));
+  if (changed || !keepView) renderClip(s);
   await renderViewer();
   renderComments();
 }
-function closeShot() { state.open = null; $('#detail').hidden = true; setHash(); }
+function closeShot() { state.open = null; $('#detail').hidden = true; $('#d-clip video').pause(); setHash(); }
 $('#d-close').onclick = closeShot;
 function step(d) {
   const list = state.shots; const i = list.findIndex(s => s.id === state.open?.id);
@@ -919,6 +988,7 @@ async function renderViewer() {
   const url = await signedUrls([s.sketch_path, ...frames, ...s.renders.map(r => r.path)]);
   const tabs = [
     ...s.renders.map(r => `<button data-v="${r.id}" class="${r.id === state.view ? 'on' : ''} ${r.id === s.approved_render_id ? 'ok' : ''}">${r.id === s.video_render_id ? '★ ' : ''}${esc(r.version)}</button>`),
+    s.renders.length > 1 ? `<button data-v="cmp" class="${state.view === 'cmp' ? 'on' : ''}" title="Dos versiones lado a lado">Comparar</button>` : '',
     s.renders.length ? `<button data-v="wipe" class="${state.view === 'wipe' ? 'on' : ''}" title="Cortina boceto/render">Cortina</button>` : '',
     `<button data-v="sketch" class="${state.view === 'sketch' ? 'on' : ''}">Solo boceto</button>`,
     ...frames.map((p, i) => `<button data-v="f${i}" class="${state.view === 'f' + i ? 'on' : ''}">Frame ${i + 2}</button>`),
@@ -931,7 +1001,16 @@ async function renderViewer() {
   const r = s.renders.find(x => x.id === state.view);
   const last = latestRender(s);
   let meta = '';
-  if (state.view === 'sketch') { cmp.className = 'compare single'; cmp.innerHTML = fig(sketch, 'Boceto', 'sketch'); }
+  if (state.view === 'cmp' && s.renders.length > 1) {
+    // Dos versiones lado a lado; por defecto la penúltima y la última.
+    const ids = s.renders.map(x => x.id);
+    if (!state.cmp || !state.cmp.every(id => ids.includes(id))) state.cmp = ids.slice(-2);
+    const pick = k => `<select data-k="${k}">${s.renders.map(x => `<option value="${x.id}" ${x.id === state.cmp[k] ? 'selected' : ''}>${esc(x.version)}${x.id === s.video_render_id ? ' ★' : ''}${x.id === s.approved_render_id ? ' ✓' : ''}</option>`).join('')}</select>`;
+    cmp.className = 'compare';
+    cmp.innerHTML = state.cmp.map((id, k) => fig(url(s.renders.find(x => x.id === id).path), pick(k), id)).join('');
+    cmp.querySelectorAll('select').forEach(sel => { sel.onclick = e => e.stopPropagation(); sel.onchange = () => { state.cmp[+sel.dataset.k] = sel.value; renderViewer(); }; });
+  }
+  else if (state.view === 'sketch') { cmp.className = 'compare single'; cmp.innerHTML = fig(sketch, 'Boceto', 'sketch'); }
   else if (/^f\d+$/.test(state.view ?? '')) { cmp.className = 'compare single'; cmp.innerHTML = fig(url(frames[+state.view.slice(1)]), `Frame ${+state.view.slice(1) + 2}`); }
   else if (state.view === 'wipe' && last) {
     cmp.className = 'compare single';
