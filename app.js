@@ -208,6 +208,7 @@ $('#anim-video').ontimeupdate = e => {
   document.querySelectorAll('.card.now').forEach(c => c.classList.remove('now'));
   const s = cur && state.shots.find(x => x.code === cur);
   if (s) document.querySelector(`.card[data-id="${s.id}"]`)?.classList.add('now');
+  updateOverlay(t);
 };
 $('#anim-toggle').onclick = () => { localStorage.setItem('animOpen', $('#anim-video').hidden ? '1' : '0'); loadAnimatic(); };
 // Cada boceto se compara con el video cada 1/4 s (misma huella de bordes que "Sugerir boceto"); queda el cuadro más parecido.
@@ -266,7 +267,7 @@ async function loadShots() {
     s.clips = (s.clips || []).filter(c => !c.deleted_at).sort((a, b) => a.created_at.localeCompare(b.created_at));
   }
   state.shots = data;
-  fillScenes();
+  fillScenes(); renderProgress();
   await renderBoard();
   const want = new URLSearchParams(location.hash.slice(1)).get('s');
   if (state.open) openShot(state.shots.find(s => s.id === state.open.id), true);
@@ -751,14 +752,16 @@ async function exportPicks() {
   if (!picks.length) return toast('No hay renders con ★ en esta parte: márcalos con la estrella del render');
   if (!window.JSZip) return toast('No cargó el compresor (JSZip); recarga la página', 5000);
   const dur = animDurations(), zip = new JSZip();
-  const rows = [['n', 'archivo', 'shot', 'version', 'tiempo_animatic', 'duracion_seg', 'titulo', 'personajes', 'notas', 'fuente']];
+  const rows = [['n', 'archivo', 'shot', 'version', 'tiempo_animatic', 'duracion_seg', 'escenario', 'titulo', 'personajes', 'notas', 'fuente', 'video', 'estado_video']];
   for (const [k, { s, n, r }] of picks.entries()) {
     toast(`Armando el zip… ${k + 1}/${picks.length}`, 10000);
     const { data, error } = await sb.storage.from(BUCKET).download(r.path); if (error) return toast(`No pude bajar ${s.code}: ${error.message}`, 6000);
     const name = `${String(n).padStart(3, '0')}_${s.code}_${r.version}${r.path.match(/\.\w+$/)?.[0] || '.png'}`;
     zip.file(name, data);
-    rows.push([n, name, s.code, r.version, anim.times[s.code] != null ? fmtT(anim.times[s.code]) : '', dur[s.code] ?? '', s.title,
-      s.characters.map(c => [c.name, c.action].filter(Boolean).join(': ')).join(' | '), /^PureRef:/.test(s.notes || '') ? '' : s.notes, r.source]);
+    const c = s.clips?.at(-1);
+    if (c) { const v = await sb.storage.from(BUCKET).download(c.path); if (!v.error) zip.file(`videos/${String(n).padStart(3, '0')}_${s.code}_video_${c.version}${c.path.match(/\.\w+$/)?.[0] || '.mp4'}`, v.data); }
+    rows.push([n, name, s.code, r.version, anim.times[s.code] != null ? fmtT(anim.times[s.code]) : '', dur[s.code] ?? '', s.scene, s.title,
+      s.characters.map(c => [c.name, c.action].filter(Boolean).join(': ')).join(' | '), /^PureRef:/.test(s.notes || '') ? '' : s.notes, r.source, c ? c.version : '', s.video_status]);
   }
   zip.file('lista.csv', '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n'));
   const blob = await zip.generateAsync({ type: 'blob' });
@@ -1037,6 +1040,74 @@ function videoOrder(s) {
   };
   document.body.appendChild(m);
 }
+
+// ---------- selección: escenario y orden conjunta ----------
+$('#sel-scene').onclick = async () => {
+  const v = await ask(`Escenario para ${state.sel.size} tarjetas (vacío = quitar)`, 'Poner', ['Escenario (p. ej. playa manglar)']);
+  if (!v) return;
+  const scene = v[0] || null;
+  bulk(scene ? `📍 ${scene}` : 'Sin escenario', () => ({ scene }), s => ({ scene: s.scene ?? null }));
+};
+// Una sola orden para generar varios shots seguidos (en el orden de la secuencia, para que el escenario siga continuo).
+$('#sel-order').onclick = () => {
+  const b = state.board, p = projectOf(b), list = selected();
+  if (!list.length) return;
+  const proj = p.id !== BAUL ? ` --project ${p.slug}` : '', cli = 'node C:/Claude_Ichi/baul-board/baul.mjs', dur = animDurations();
+  const text = [
+    `Genera en Magnific estos ${list.length} shots de ${p.name}, EP${b.episode} Parte ${b.part}, en este orden (es el de la secuencia):`,
+    ...list.map(s => `- ${s.code} (posición ${state.shots.indexOf(s) + 1}${dur[s.code] ? `, ${dur[s.code].toFixed(1)} s` : ''}${s.scene ? `, escenario «${s.scene}»` : ''})${s.title ? ': ' + s.title : ''}${s.renders.length ? ` — ya tiene ${s.renders.length} render(s)` : ''}${s.comments.some(c => !c.resolved) ? ' — tiene comentarios abiertos' : ''}`),
+    '',
+    `Para cada uno: lee el shot (${cli} shot ${b.episode} ${b.part} <code>${proj}), mira sus vecinos y usa el render ya hecho del shot anterior como referencia de escenario, luz y utilería, para que la secuencia sea continua.`,
+    'Sigue las reglas del proyecto (memoria de C:/Claude_Ichi: Seedream 5 Pro, sheets de personajes como referencia, el boceto no va como referencia: la composición va en el texto del prompt).',
+    `Sube cada uno al terminarlo: ${cli} render ${b.episode} ${b.part} <code> <archivo>${proj} --source "Magnific <prod id>" --prompt <prompt.txt> --note "<crítica honesta>"`,
+  ].join('\n');
+  const m = document.createElement('div'); m.className = 'modal';
+  m.innerHTML = `<div class="modal-box order"><div class="row"><b>Orden para ${list.length} shots</b><span class="grow"></span><button class="ghost small" data-close>Cerrar</button></div>
+    <p class="muted small">Pégala en el chat de Claude de EP${b.episode}. Puedes editarla antes de copiar.</p>
+    <textarea rows="16"></textarea><div class="row"><button data-copy>Copiar orden</button></div></div>`;
+  const ta = m.querySelector('textarea'); ta.value = text;
+  m.onclick = async e => {
+    if (e.target === m || e.target.dataset.close !== undefined) return m.remove();
+    if (e.target.dataset.copy === undefined) return;
+    try { await navigator.clipboard.writeText(ta.value); } catch { ta.select(); document.execCommand('copy'); }
+    m.remove(); toast('Orden copiada');
+  };
+  document.body.appendChild(m);
+};
+
+// ---------- progreso de la parte ----------
+function renderProgress() {
+  const shots = state.shots.filter(s => (s.kind || 'shot') === 'shot'), n = shots.length, box = $('#progress');
+  if (!n) { box.hidden = true; return; }
+  const count = f => shots.filter(f).length;
+  const st = ['aprobado', 'generado', 'cambios', 'pendiente'].map(k => [k, count(s => s.status === k)]);
+  const star = count(s => s.video_render_id), vid = count(s => s.clips?.length), vok = count(s => s.video_status === 'aprobado');
+  box.hidden = false;
+  box.innerHTML = `<div class="pbar">${st.map(([k, c]) => c ? `<span class="${k}" style="flex:${c}" title="${k}: ${c}"></span>` : '').join('')}</div>
+    <span>${st.map(([k, c]) => `<b class="t-${k}">${c}</b> ${k}`).join(' · ')} de ${n} shots</span>
+    <span class="muted">★ ${star}/${n} para video · 🎬 ${vid} con video${vok ? ` (${vok} aprobados)` : ''}</span>`;
+}
+
+// ---------- animatic con renders encima ----------
+// Mientras corre el animatic, cada plano se cubre con su render (★, aprobado o último); donde no hay render se ve el boceto animado.
+let overOn = false; try { overOn = localStorage.getItem('animOver') === '1'; } catch {}
+async function updateOverlay(t) {
+  const img = $('#anim-over');
+  if (!overOn || !anim.path) { img.hidden = true; return; }
+  let plan = -1; for (const v of Object.values(anim.times)) if (v <= t + .05 && v > plan) plan = v;
+  const poses = state.shots.filter(s => anim.times[s.code] === plan && shownRender(s)).sort((a, b) => (anim.at?.[a.code] ?? 0) - (anim.at?.[b.code] ?? 0));
+  const s = poses.filter(x => (anim.at?.[x.code] ?? 0) <= t + .05).at(-1) || poses[0];
+  const path = s && shownRender(s).path;
+  if (!path) { img.hidden = true; return; }
+  if (img.dataset.path !== path) { img.src = (await signedUrls([path]))(path); img.dataset.path = path; }
+  img.hidden = false;
+}
+$('#anim-over-btn').onclick = () => {
+  overOn = !overOn; try { localStorage.setItem('animOver', overOn ? '1' : '0'); } catch {}
+  $('#anim-over-btn').classList.toggle('on', overOn); updateOverlay($('#anim-video').currentTime);
+  toast(overOn ? 'Animatic con renders: donde hay render se ve el render' : 'Animatic solo');
+};
+$('#anim-over-btn').classList.toggle('on', overOn);
 
 // Orden para el chat de Claude del episodio (o uno nuevo): qué shot, dónde leerlo, sus vecinos, refs elegidas del episodio y cómo devolver el render.
 async function magnificOrder(s) {

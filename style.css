@@ -212,3 +212,15 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .vstage video { flex: 1; min-height: 0; width: 100%; background: #000; border-radius: 6px; }
 .vstage .vempty { flex: 1; display: grid; place-items: center; text-align: center; padding: 24px; border: 1px dashed var(--line); border-radius: 6px; }
 .vstage .row { display: flex; gap: 8px; align-items: center; }
+
+.progress { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 10px 16px 0; font-size: 13px; }
+.progress[hidden] { display: none; }
+.pbar { display: flex; width: 220px; height: 10px; border-radius: 5px; overflow: hidden; background: var(--line); }
+.pbar span { display: block; }
+.pbar .aprobado { background: var(--aprobado); } .pbar .generado { background: var(--generado); } .pbar .cambios { background: var(--cambios); } .pbar .pendiente { background: var(--pendiente); }
+.t-aprobado { color: var(--aprobado); } .t-generado { color: var(--generado); } .t-cambios { color: var(--cambios); } .t-pendiente { color: var(--muted); }
+.anim-wrap { position: relative; }
+.anim-wrap video { display: block; }
+#anim-over { position: absolute; inset: 0 0 48px 0; width: 100%; height: calc(100% - 48px); object-fit: contain; pointer-events: none; }
+#anim-video[hidden] + #anim-over { display: none; }
+#anim-over-btn.on { color: var(--accent); border-color: var(--accent); }
