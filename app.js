@@ -253,16 +253,20 @@ $('#anim-file').onchange = async e => {
 
 async function loadShots() {
   if (!state.board) { $('#board').querySelectorAll('.card').forEach(c => c.remove()); return; }
-  const { data, error } = await sb.from('shots')
-    .select('*, renders!renders_shot_id_fkey(*), comments(*)').eq('board_id', state.board.id).is('deleted_at', null).order('sort').order('code');
+  const q = sel => sb.from('shots').select(sel).eq('board_id', state.board.id).is('deleted_at', null).order('sort').order('code');
+  let { data, error } = await q('*, renders!renders_shot_id_fkey(*), comments(*), clips(*)');
+  // Antes de correr el SQL de la etapa de video no existe la tabla clips.
+  if (error && /clips/.test(error.message)) ({ data, error } = await q('*, renders!renders_shot_id_fkey(*), comments(*)'));
   if (error) return toast(error.message);
   for (const s of data) {
     // nextV cuenta también los renders en la papelera, para no repetir versión al restaurar.
     s.nextV = 1 + Math.max(0, ...s.renders.map(r => +r.version.replace(/\D/g, '') || 0));
     s.renders = s.renders.filter(r => !r.deleted_at).sort((a, b) => a.created_at.localeCompare(b.created_at));
     s.comments.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    s.clips = (s.clips || []).filter(c => !c.deleted_at).sort((a, b) => a.created_at.localeCompare(b.created_at));
   }
   state.shots = data;
+  fillScenes();
   await renderBoard();
   const want = new URLSearchParams(location.hash.slice(1)).get('s');
   if (state.open) openShot(state.shots.find(s => s.id === state.open.id), true);
@@ -306,12 +310,12 @@ async function renderBoard() {
         <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span><button class="vstar ${r.id === s.video_render_id ? 'on' : ''}" title="★ Para video: este render va a Magnific video">★</button>` : ''}${imgTools(!!r, true)}</div>
       </div>
       <div class="meta">
-        <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span>${anim.times[s.code] != null ? `<button class="tc" title="Ver en el animatic (tiempo · duración del plano)">▶ ${fmtT(anim.times[s.code])}${durs[s.code] ? ` · ${durs[s.code].toFixed(1)}s` : ''}</button>` : ''}<span class="code">${esc(s.code)}</span><span class="pill ${s.status}">${s.status}</span>
+        <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span>${anim.times[s.code] != null ? `<button class="tc" title="Ver en el animatic (tiempo · duración del plano)">▶ ${fmtT(anim.times[s.code])}${durs[s.code] ? ` · ${durs[s.code].toFixed(1)}s` : ''}</button>` : ''}<span class="code">${esc(s.code)}</span><span class="pill ${s.status}" title="${esc(approvedBy(s))}">${s.status}</span>
           <select class="kind" title="Tipo">${Object.entries(KIND_ONE).map(([k, l]) => `<option value="${k}" ${k === (s.kind || 'shot') ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="grow"></span>
           <span class="muted small">${s.renders.length} render${s.renders.length === 1 ? '' : 's'}${open ? ` · 💬 ${open}` : ''}</span></div>
         ${same.length ? `<div class="same small" title="Mismo plano del animatic que ${same.map(esc).join(', ')}">≡ pose ${plan.indexOf(s.code) + 1} de ${plan.length} del mismo plano</div>` : ''}
         ${s.title ? `<div class="muted">${esc(s.title)}</div>` : ''}
-        <div class="who">${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
+        <div class="who">${s.scene ? `<span class="chip scene" title="Escenario">📍 ${esc(s.scene)}</span>` : ''}${s.clips?.length ? `<span class="chip clip" title="Video de Magnific">🎬 ${esc(s.clips.at(-1).version)}${s.video_status ? ' · ' + s.video_status : ''}</span>` : ''}${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
       </div>`;
     wireTools(el.querySelector('.ph.r'), s, r?.id);
     el.onclick = e => { if (e.target.closest('.kind, .tools')) return; if (e.ctrlKey || e.metaKey || e.shiftKey) return selectCard(s, e.shiftKey); if (e.target.closest('.vstar')) return toggleVideo(s, r.id); if (e.target.closest('.tc')) return seekAnim(s.code); if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); if (e.target.closest('.mv')) return pickTarget(s, 'move'); openShot(s); };
@@ -836,7 +840,7 @@ const orderByAnimatic = guard(async () => {
 $('#anim-order').onclick = async () => { if (await ask('¿Ordenar las tarjetas de esta parte según el animatic? (se puede deshacer)', 'Ordenar')) orderByAnimatic(); };
 
 // ---------- buscar ----------
-const matches = (s, q) => !q || [s.code, s.title, s.notes, ...s.characters.map(c => `${c.name} ${c.action ?? ''}`)].join(' ').toLowerCase().includes(q);
+const matches = (s, q) => !q || [s.code, s.title, s.notes, s.scene, ...s.characters.map(c => `${c.name} ${c.action ?? ''}`)].join(' ').toLowerCase().includes(q);
 $('#search').oninput = e => { state.q = e.target.value.trim().toLowerCase(); renderBoard(); };
 
 // ---------- selección múltiple ----------
@@ -868,8 +872,9 @@ $('#selbar').onclick = e => {
 };
 $('#sel-status').onchange = e => {
   const st = e.target.value; e.target.value = ''; if (!st) return;
-  bulk(`Estado ${st}`, s => ({ status: st, ...(st === 'aprobado' && s.renders.length ? { approved_render_id: s.approved_render_id || shownRender(s).id } : {}) }),
-    s => ({ status: s.status, approved_render_id: s.approved_render_id ?? null }));
+  if (st === 'aprobado' && !canApprove()) return toast('Solo un director aprueba');
+  bulk(`Estado ${st}`, s => ({ status: st, ...(st === 'aprobado' ? { approved_by: state.me.name, approved_at: now(), ...(s.renders.length ? { approved_render_id: s.approved_render_id || shownRender(s).id } : {}) } : {}) }),
+    s => ({ status: s.status, approved_render_id: s.approved_render_id ?? null, ...(st === 'aprobado' ? { approved_by: s.approved_by ?? null, approved_at: s.approved_at ?? null } : {}) }));
 };
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && state.sel.size && $('#detail').hidden && !document.querySelector('.modal')) { state.sel.clear(); paintSel(); }
@@ -932,6 +937,107 @@ document.addEventListener('keydown', e => {
   e.preventDefault();
 });
 
+// ---------- escenarios ----------
+// Cada shot puede llevar su set (playa con manglar, roca…); la orden ✦ Magnific usa los renders elegidos del mismo set como referencia de fondo.
+const sceneMates = s => state.shots.filter(x => x !== s && s.scene && x.scene === s.scene && (x.video_render_id || x.approved_render_id))
+  .sort((a, b) => Math.abs(state.shots.indexOf(a) - state.shots.indexOf(s)) - Math.abs(state.shots.indexOf(b) - state.shots.indexOf(s))).slice(0, 4);
+function fillScenes() {
+  $('#scenes').innerHTML = [...new Set(state.shots.map(s => s.scene).filter(Boolean))].sort().map(x => `<option value="${esc(x)}">`).join('');
+}
+$('#d-scene').onchange = async e => {
+  const v = e.target.value.trim() || null;
+  const { error } = await sb.from('shots').update({ scene: v }).eq('id', state.open.id);
+  if (error) return toast(/scene/.test(error.message) ? 'Falta correr el SQL de escenarios en Supabase' : error.message, 5000);
+  state.open.scene = v; toast(v ? `${state.open.code} → escenario «${v}»` : 'Sin escenario'); renderBoard(); fillScenes();
+};
+
+// ---------- aprobación ----------
+// Solo un director da la aprobación final; queda quién y cuándo.
+const canApprove = () => state.me?.role === 'director';
+const approvedBy = s => s.approved_by ? `aprobado por ${s.approved_by}${s.approved_at ? ' · ' + new Date(s.approved_at).toLocaleDateString('es') : ''}` : '';
+
+// ---------- etapa de video ----------
+const VIDEO_ST = { pendiente: 'Pendiente', generado: 'Generado', cambios: 'Pedir cambios', aprobado: 'Aprobar' };
+async function renderVideoStage(s, cmp) {
+  const clips = s.clips || [];
+  const c = clips.find(x => x.id === state.clipId) || clips.at(-1);
+  const url = await signedUrls(clips.map(x => x.path));
+  const start = s.renders.find(r => r.id === s.video_render_id) || (s.approved_render_id && s.renders.find(r => r.id === s.approved_render_id));
+  const dur = animDurations()[s.code];
+  cmp.className = 'compare single';
+  cmp.innerHTML = `<figure class="vstage"><figcaption>
+      🎬 Video ${clips.length ? clips.map(x => `<button class="vtab ${x === c ? 'on' : ''}" data-clip="${x.id}">${esc(x.version)}</button>`).join('') : '· todavía no hay'}
+      <span class="grow"></span>${Object.entries(VIDEO_ST).map(([k, l]) => `<button class="vst ${s.video_status === k ? 'on' : ''}" data-vst="${k}">${l}</button>`).join('')}</figcaption>
+    ${c ? `<video src="${url(c.path)}" controls loop playsinline></video>
+      <div class="muted small">${[c.source, c.created_by, new Date(c.created_at).toLocaleString('es')].filter(Boolean).map(esc).join(' · ')}${c.note ? ' — ' + esc(c.note) : ''}</div>`
+      : `<div class="muted vempty">Imagen de inicio: ${start ? `render ${esc(start.version)}${start.id === s.video_render_id ? ' ★' : ' (aprobado)'}` : 'falta elegir el render ★ para video'}${dur ? ` · duración según el animatic: ${dur.toFixed(1)} s` : ''}</div>`}
+    <div class="row"><button class="v-order">✦ Orden de video</button><label class="btn ghost small">+ Subir video<input type="file" accept="video/*" hidden></label>
+      ${c ? '<button class="ghost small danger v-del">✕ Eliminar video</button>' : ''}</div></figure>`;
+  cmp.onclick = async e => {
+    const t = e.target;
+    if (t.dataset.clip) { state.clipId = t.dataset.clip; return renderViewer(); }
+    if (t.dataset.vst) return setVideoStatus(s, t.dataset.vst);
+    if (t.closest('.v-order')) return videoOrder(s);
+    if (t.closest('.v-del') && await ask(`¿Eliminar el video ${c.version} de ${s.code}?`, 'Eliminar')) {
+      const { error } = await sb.from('clips').update({ deleted_at: now() }).eq('id', c.id); if (error) return toast(error.message);
+      state.clipId = null; loadShots();
+    }
+  };
+  cmp.querySelector('input[type=file]').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) uploadClip(s, f); };
+}
+async function uploadClip(s, f) {
+  if (f.size > 50e6) return toast(`El video pesa ${Math.round(f.size / 1e6)} MB (máximo 50)`, 6000);
+  toast(`Subiendo video (${Math.round(f.size / 1e6)} MB)…`, 60000);
+  const version = `v${(s.clips || []).length + 1}`;
+  try {
+    const path = await uploadFile(f, `${basePath(state.board, s.code)}/clip_${version}_${stamp()}${ext(f)}`);
+    const { data, error } = await sb.from('clips').insert({ shot_id: s.id, version, path, created_by: state.me.name }).select().single();
+    if (error) throw error;
+    await sb.from('shots').update({ video_status: 'generado' }).eq('id', s.id);
+    state.clipId = data.id; toast(`Video ${version} subido a ${s.code}`); loadShots();
+  } catch (e) { toast(/clips/.test(e.message) ? 'Falta correr el SQL de la etapa de video en Supabase' : e.message, 6000); }
+}
+async function setVideoStatus(s, st) {
+  if (st === 'aprobado' && !canApprove()) return toast('Solo un director aprueba el video');
+  const { error } = await sb.from('shots').update({ video_status: st }).eq('id', s.id);
+  if (error) return toast(error.message);
+  toast(`Video de ${s.code}: ${st}`); loadShots();
+}
+// Orden para Magnific video: imagen de inicio (★), duración y acción del animatic, continuidad y cómo devolver el clip.
+function videoOrder(s) {
+  const b = state.board, i = state.shots.indexOf(s), p = projectOf(b);
+  const proj = p.id !== BAUL ? ` --project ${p.slug}` : '', cli = 'node C:/Claude_Ichi/baul-board/baul.mjs';
+  const start = s.renders.find(r => r.id === s.video_render_id) || s.renders.find(r => r.id === s.approved_render_id);
+  const t = anim.times[s.code], dur = animDurations()[s.code];
+  const prev = state.shots[i - 1], next = state.shots[i + 1];
+  const open = s.comments.filter(c => !c.resolved);
+  const text = [
+    `Genera en Magnific el VIDEO del shot ${s.code} de ${p.name}, EP${b.episode} Parte ${b.part} (posición ${i + 1} de ${state.shots.length}).`,
+    '',
+    `1. Lee el shot: ${cli} shot ${b.episode} ${b.part} ${s.code}${proj}`,
+    start ? `2. Imagen de inicio: render ${start.version}${start.id === s.video_render_id ? ' (★ para video)' : ' (aprobado)'}; está en cache/ después del comando anterior.` : '2. Falta la imagen de inicio: pide a René que marque el render ★ para video antes de generar.',
+    t != null ? `3. Duración y acción: el plano dura ${dur ? dur.toFixed(1) + ' s' : '?'} en el animatic ${anim.file || ''} (desde ${fmtT(t)}). Mira ese tramo para el movimiento de los personajes y de cámara; descríbelo en el prompt.` : '3. Este shot no está sincronizado con el animatic: pide la duración y la acción a René.',
+    s.title ? `   Acción: ${s.title}` : '',
+    s.characters.length ? `   Personajes: ${s.characters.map(c => [c.name, c.action].filter(Boolean).join(' – ')).join('; ')}.` : '',
+    s.notes && !/^PureRef:/.test(s.notes) ? `   Notas: ${s.notes}` : '',
+    open.length ? `   Comentarios abiertos: ${open.map(c => `${c.author}: ${c.body}`).join(' | ')}` : '',
+    `4. Continuidad: el video empalma con ${prev ? prev.code : '—'} (antes) y ${next ? next.code : '—'} (después); sin cambios de luz ni de fondo.`,
+    `5. Cuando esté, súbelo: ${cli} clip ${b.episode} ${b.part} ${s.code} <video>${proj} --source "Magnific <prod id>" --prompt <prompt.txt> --note "<crítica honesta>"`,
+  ].filter(Boolean).join('\n');
+  const m = document.createElement('div'); m.className = 'modal';
+  m.innerHTML = `<div class="modal-box order"><div class="row"><b>Orden de video · ${esc(s.code)}</b><span class="grow"></span><button class="ghost small" data-close>Cerrar</button></div>
+    <p class="muted small">Pégala en el chat de Claude de EP${b.episode}. Puedes editarla antes de copiar.</p>
+    <textarea rows="14"></textarea><div class="row"><button data-copy>Copiar orden</button></div></div>`;
+  const ta = m.querySelector('textarea'); ta.value = text;
+  m.onclick = async e => {
+    if (e.target === m || e.target.dataset.close !== undefined) return m.remove();
+    if (e.target.dataset.copy === undefined) return;
+    try { await navigator.clipboard.writeText(ta.value); } catch { ta.select(); document.execCommand('copy'); }
+    m.remove(); toast('Orden de video copiada');
+  };
+  document.body.appendChild(m);
+}
+
 // Orden para el chat de Claude del episodio (o uno nuevo): qué shot, dónde leerlo, sus vecinos, refs elegidas del episodio y cómo devolver el render.
 async function magnificOrder(s) {
   const b = state.board, i = state.shots.indexOf(s), p = projectOf(b);
@@ -962,6 +1068,7 @@ async function magnificOrder(s) {
       s.notes && !/^PureRef:/.test(s.notes) ? `   Notas: ${s.notes}` : '',
       open.length ? `   Comentarios abiertos: ${open.map(c => `${c.author}: ${c.body}`).join(' | ')}` : '',
       last ? `   Ya tiene ${s.renders.length} render(s); el último es ${last.version}${s.status === 'cambios' ? ' y pidieron cambios' : ''}.` : '',
+      s.scene ? (sceneMates(s).length ? `   Escenario «${s.scene}»: usa como referencia de fondo los renders elegidos de ${sceneMates(s).map(x => `${x.code} (${(x.renders.find(r => r.id === (x.video_render_id || x.approved_render_id)) || {}).version})`).join(', ')} (mismo set).` : `   Escenario «${s.scene}»: es el primero de ese set; define bien el fondo para los demás.`) : '',
       sel.length ? `   Refs del episodio para usar (bájalas con ${cli} shot ${b.episode} 0 <code>${proj}):${line('sheet') ? ` sheets ${line('sheet')}` : ''}${line('sheet') && line('bg') ? ';' : ''}${line('bg') ? ` fondos ${line('bg')}` : ''}.` : '',
       '4. Sigue las reglas del proyecto (memoria de C:/Claude_Ichi: Seedream 5 Pro, sheets de personajes como referencia, el boceto no va como referencia: la composición va en el texto del prompt).',
       `5. Cuando esté, súbelo: ${cli} render ${b.episode} ${b.part} ${s.code} <archivo>${proj} --source "Magnific <prod id>" --prompt <prompt.txt> --note "<crítica honesta>"`,
@@ -1026,12 +1133,12 @@ async function openShot(s, keepView = false) {
   if (!s) return closeShot();
   const changed = state.open?.id !== s.id;
   state.open = s; setHash(s); if (isNew(s)) { markSeen(s); renderBoard(); }
-  if (changed || !keepView || !s.renders.some(r => r.id === state.view)) state.view = latestRender(s)?.id ?? 'sketch';
+  if (changed || !keepView || !(s.renders.some(r => r.id === state.view) || ['video', 'cmp', 'sketch', 'wipe'].includes(state.view))) state.view = latestRender(s)?.id ?? 'sketch';
   $('#detail').hidden = false;
   if (changed || !keepView) {
     $('#d-code').value = s.code; $('#d-title').value = s.title ?? '';
     $('#d-notes').value = s.notes ?? ''; $('#d-prompt').value = s.prompt ?? '';
-    $('#d-kind').value = s.kind || 'shot';
+    $('#d-kind').value = s.kind || 'shot'; $('#d-scene').value = s.scene ?? '';
     renderChars();
   }
   $('#d-status').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.s === s.status));
@@ -1062,17 +1169,19 @@ async function renderViewer() {
     s.renders.length > 1 ? `<button data-v="cmp" class="${state.view === 'cmp' ? 'on' : ''}" title="Dos versiones lado a lado">Comparar</button>` : '',
     s.renders.length ? `<button data-v="wipe" class="${state.view === 'wipe' ? 'on' : ''}" title="Cortina boceto/render">Cortina</button>` : '',
     `<button data-v="sketch" class="${state.view === 'sketch' ? 'on' : ''}">Solo boceto</button>`,
+    (s.kind || 'shot') === 'shot' ? `<button data-v="video" class="vtab-main ${state.view === 'video' ? 'on' : ''}" title="Etapa de video: clips de Magnific, estado y orden de video">🎬 Video${s.clips?.length ? ' ' + s.clips.at(-1).version : ''}</button>` : '',
     ...frames.map((p, i) => `<button data-v="f${i}" class="${state.view === 'f' + i ? 'on' : ''}">Frame ${i + 2}</button>`),
   ];
   $('#view-tabs').innerHTML = tabs.join('');
   $('#view-tabs').onclick = e => { const v = e.target.dataset?.v; if (v) { state.view = v; renderViewer(); } };
-  const cmp = $('#compare');
+  const cmp = $('#compare'); cmp.onclick = null;
   const sketch = s.sketch_path ? url(s.sketch_path) : '';
   const fig = (src, cap, t = '') => `<figure data-t="${t}" title="${t ? 'Mouse encima + Ctrl+V = reemplazar esta imagen' : ''}"><figcaption>${cap}</figcaption>${src ? `<img src="${src}" alt="">` : '<div class="muted">—</div>'}${t ? imgTools(true) : ''}</figure>`;
   const r = s.renders.find(x => x.id === state.view);
   const last = latestRender(s);
   let meta = '';
-  if (state.view === 'cmp' && s.renders.length > 1) {
+  if (state.view === 'video') await renderVideoStage(s, cmp);
+  else if (state.view === 'cmp' && s.renders.length > 1) {
     // Dos versiones lado a lado; por defecto la penúltima y la última.
     const ids = s.renders.map(x => x.id);
     if (!state.cmp || !state.cmp.every(id => ids.includes(id))) state.cmp = ids.slice(-2);
@@ -1092,7 +1201,7 @@ async function renderViewer() {
   } else if (r) {
     cmp.className = 'compare';
     cmp.innerHTML = fig(sketch, 'Boceto', 'sketch') + fig(url(r.path), `Render ${esc(r.version)}${r.id === s.approved_render_id ? ' · aprobado' : ''}`, r.id);
-    meta = [r.source, r.created_by, new Date(r.created_at).toLocaleString('es')].filter(Boolean).join(' · ');
+    meta = [r.source, r.created_by, new Date(r.created_at).toLocaleString('es'), r.id === s.approved_render_id ? approvedBy(s) : ''].filter(Boolean).join(' · ');
   } else { cmp.className = 'compare single'; cmp.innerHTML = fig(sketch, 'Boceto · sin render todavía', 'sketch'); }
   $('#render-meta').textContent = meta;
   const delBtn = $('#del-render');
@@ -1121,7 +1230,8 @@ async function patchShot(fields) {
 }
 $('#d-status').onclick = async e => {
   const st = e.target.dataset?.s; if (!st) return;
-  const fields = { status: st };
+  if (st === 'aprobado' && !canApprove()) return toast('Solo un director aprueba. Usa "Pedir cambios" o deja un comentario.');
+  const fields = { status: st, ...(st === 'aprobado' ? { approved_by: state.me.name, approved_at: now() } : {}) };
   const viewing = state.open.renders.find(r => r.id === state.view);
   if (st === 'aprobado') fields.approved_render_id = viewing?.id ?? latestRender(state.open)?.id ?? null;
   await patchShot(fields);
@@ -1229,6 +1339,7 @@ function subscribe() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'shots' }, refresh)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'renders' }, refresh)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, refresh)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'clips' }, refresh)
     .subscribe();
 }
 

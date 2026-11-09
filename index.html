@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NP+ RefBoards</title>
-<link rel="stylesheet" href="style.css?v=202611090910">
+<link rel="stylesheet" href="style.css?v=202611091000">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="config.js?v=202611090910"></script>
+<script src="config.js?v=202611091000"></script>
 </head>
 <body>
 <div id="login" class="login" hidden>
@@ -80,6 +80,7 @@
   <div class="detail-head">
     <input id="d-code" class="d-code" aria-label="Código del shot">
     <input id="d-title" class="d-title" placeholder="título / descripción corta">
+    <input id="d-scene" list="scenes" placeholder="📍 escenario" title="Escenario (set) de este shot: los del mismo set comparten fondo" aria-label="Escenario"><datalist id="scenes"></datalist>
     <select id="d-kind" aria-label="Tipo"><option value="shot">Shot</option><option value="bg">BG</option><option value="asset">Asset</option><option value="sheet">Character sheet</option></select>
     <span class="grow"></span>
     <button id="d-gen" class="ghost" title="Copiar la orden para generar este shot en Magnific">✦ Magnific</button>
@@ -129,6 +130,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611090910"></script>
+<script src="app.js?v=202611091000"></script>
 </body>
 </html>

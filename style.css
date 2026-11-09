@@ -202,3 +202,13 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .card.new .code::after { content: " • nuevo"; color: #4f8fd6; font-size: 11px; font-weight: 600; }
 .filters button.hot { color: #4f8fd6; border-color: #4f8fd6; }
 .card .same { color: #e0a440; }
+
+#d-scene { width: 160px; }
+.chip.scene { color: #8fd18f; }
+.chip.clip { color: #e0a440; }
+.vstage figcaption { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.vstage .vtab, .vstage .vst { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; padding: 2px 9px; }
+.vstage .vtab.on, .vstage .vst.on { color: var(--text); border-color: var(--accent); }
+.vstage video { flex: 1; min-height: 0; width: 100%; background: #000; border-radius: 6px; }
+.vstage .vempty { flex: 1; display: grid; place-items: center; text-align: center; padding: 24px; border: 1px dashed var(--line); border-radius: 6px; }
+.vstage .row { display: flex; gap: 8px; align-items: center; }
