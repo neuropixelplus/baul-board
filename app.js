@@ -1,5 +1,6 @@
 // NP+ RefBoards — frontend sin build. Config en config.js (URL + anon key).
-const sb = supabase.createClient(window.BAUL_CONFIG.url, window.BAUL_CONFIG.anonKey);
+// Sin el candado del navegador: si otra pestaña del tablero quedó trabada con él, esta esperaba para siempre (pantalla "Cargando…").
+const sb = supabase.createClient(window.BAUL_CONFIG.url, window.BAUL_CONFIG.anonKey, { auth: { lock: (name, timeout, fn) => fn() } });
 const BUCKET = 'baul';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
