@@ -90,6 +90,7 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 
 .side { border-left: 1px solid var(--line); padding: 12px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .side h3 { margin: 10px 0 0; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; }
+#d-notes { flex: none; min-height: 84px; resize: vertical; }
 .char { display: grid; grid-template-columns: 1fr 1fr auto; gap: 4px; padding: 6px; background: var(--panel); border-radius: 6px; }
 .char input { padding: 4px 6px; font-size: 13px; min-width: 0; }
 .char input.name { font-weight: 700; }
@@ -282,3 +283,14 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
   /* en el celular la tarjeta solo abre el detalle: sin botones encima */
   .card .tools, .card .use, .card .mv, .card .del { display: none !important; }
 }
+/* tags de personajes sobre el boceto */
+.compare figure > .tags { position: absolute; pointer-events: none; }
+.tags .tag { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; padding: 2px 8px; font-size: 12px; font-weight: 700; border-radius: 10px;
+  background: #e0457b; color: #fff; border: 2px solid #fff; box-shadow: 0 1px 4px #0008; white-space: nowrap; cursor: pointer; }
+.compare figure.tagging > img { cursor: crosshair; outline: 2px dashed #e0457b; outline-offset: -2px; }
+#tag-mode.on { background: #e0457b; color: #fff; }
+.tag-pick { position: fixed; z-index: 60; display: flex; flex-wrap: wrap; gap: 4px; max-width: min(340px, calc(100vw - 16px)); padding: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 4px 18px #000a; }
+.tag-pick b { flex: 1 1 100%; }
+.tag-pick button.on { outline: 2px solid #e0457b; }
+@media (max-width: 700px) { .tags .tag { font-size: 13px; padding: 4px 10px; } .tag-pick button { padding: 8px 10px; } }

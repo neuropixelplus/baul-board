@@ -813,7 +813,7 @@ addEventListener('wheel', e => {
 // En el detalle: rueda sobre la imagen = zoom donde está el mouse; arrastrar = mover; doble clic = volver a ver entera.
 function zoomable(img) {
   let s = 1, x = 0, y = 0, drag = null;
-  const apply = () => { img.style.transform = `translate(${x}px, ${y}px) scale(${s})`; img.classList.toggle('zoomed', s > 1); };
+  const apply = () => { img.style.transform = `translate(${x}px, ${y}px) scale(${s})`; img.classList.toggle('zoomed', s > 1); img.parentElement?._fit?.(); };
   img.style.transformOrigin = '0 0';
   img.addEventListener('wheel', e => {
     e.preventDefault();
@@ -1151,7 +1151,7 @@ async function magnificOrder(s) {
     refs = data || [];
   }
   const names = s.characters.map(c => c.name?.toLowerCase()).filter(n => n && n.length > 2);
-  const picked = new Set(refs.filter(r => r.kind === 'sheet' && names.some(n => `${r.code} ${r.title ?? ''}`.toLowerCase().includes(n))).map(r => r.id));
+  const picked = new Set(refs.filter(r => r.kind === 'sheet' && (names.some(n => `${r.code} ${r.title ?? ''}`.toLowerCase().includes(n)) || s.characters.some(c => c.ref === r.code))).map(r => r.id));
   const textFor = () => {
     const sel = refs.filter(r => picked.has(r.id));
     const line = k => sel.filter(r => r.kind === k).map(r => r.code + (r.title ? ` (${r.title})` : '')).join(', ');
@@ -1233,7 +1233,8 @@ async function openShot(s, keepView = false) {
   $('#detail').hidden = false;
   if (changed || !keepView) {
     $('#d-code').value = s.code; $('#d-title').value = s.title ?? '';
-    $('#d-notes').value = s.notes ?? ''; $('#d-prompt').value = s.prompt ?? '';
+    $('#d-notes').value = sceneNotes(s); $('#d-prompt').value = s.prompt ?? '';
+    if (changed) state.tagging = false;
     $('#d-kind').value = s.kind || 'shot'; $('#d-scene').value = s.scene ?? '';
     renderChars();
   }
@@ -1312,9 +1313,14 @@ async function renderViewer() {
   // Editar / Reemplazar van encima de cada imagen (imgTools).
   cmp.querySelectorAll('figure[data-t]').forEach(f => f.dataset.t && wireTools(f, s, f.dataset.t));
   cmp.querySelectorAll('figure > img').forEach(zoomable);
-  cmp.querySelectorAll('figure > img').forEach(img => img.onclick = () => {
-    if (img.dataset.dragged || img.classList.contains('zoomed')) return;
+  cmp.querySelectorAll('figure[data-t="sketch"]').forEach(f => { f.classList.toggle('tagging', !!state.tagging); placeTags(f); });
+  $('#tag-mode').hidden = !s.sketch_path; $('#tag-mode').classList.toggle('on', !!state.tagging);
+  $('#tag-mode').textContent = state.tagging ? '🏷 Listo' : '🏷 Personajes';
+  cmp.querySelectorAll('figure > img').forEach(img => img.onclick = e => {
+    if (img.dataset.dragged) return;
     const which = img.closest('figure').dataset.t;
+    if (state.tagging && which === 'sketch') return tagAt(img, e);
+    if (img.classList.contains('zoomed')) return;
     const lb = document.createElement('div'); lb.className = 'lightbox'; lb.innerHTML = `<img src="${img.src}">${which ? '<button class="lb-dl">⇩ Descargar</button>' : ''}`;
     lb.onclick = e => { if (e.target.closest('.lb-dl')) return downloadImage(s, which); lb.remove(); }; document.body.appendChild(lb);
   });
@@ -1348,7 +1354,7 @@ function renderChars() {
   const s = state.open;
   $('#chars').innerHTML = s.characters.map((c, i) => `
     <div class="char" data-i="${i}">
-      <input class="name" data-k="name" value="${esc(c.name)}" placeholder="Nombre">
+      <input class="name" data-k="name" value="${esc(c.name)}" placeholder="Nombre"${c.x != null ? ` title="Marcado en el boceto (x ${c.x}%, y ${c.y}%)"` : ''}>
       <input data-k="where" value="${esc(c.where)}" placeholder="Dónde (izq, centro…)">
       <button class="ghost small" data-del="${i}" title="Quitar">✕</button>
       <input class="full" data-k="look" value="${esc(c.look)}" placeholder="Cómo se ve (sheet, ropa, rasgo clave)">
@@ -1358,13 +1364,118 @@ function renderChars() {
 $('#chars').onchange = e => {
   const i = +e.target.closest('.char')?.dataset.i; const k = e.target.dataset.k; if (!k) return;
   const chars = structuredClone(state.open.characters); chars[i][k] = e.target.value;
-  patchShot({ characters: chars }).then(renderBoard);
+  patchShot({ characters: chars }).then(() => { renderBoard(); refreshTags(); });
 };
 $('#chars').onclick = e => {
   const d = e.target.dataset?.del; if (d === undefined) return;
   const chars = state.open.characters.filter((_, i) => i !== +d);
-  patchShot({ characters: chars }).then(() => { renderChars(); renderBoard(); });
+  patchShot({ characters: chars }).then(() => { renderChars(); renderBoard(); refreshTags(); });
 };
+
+// ---------- tags de personajes sobre el boceto ----------
+// Cada entrada de shots.characters puede llevar x, y (% del boceto) y ref (código del sheet en la Parte 0).
+// Con 🏷 prendido, tocar el boceto marca a un personaje; tocar una marca la cambia o la quita.
+const CAST = [ // El Baúl de Darwin, según los sheets de la Parte 0 del EP2
+  { name: 'Esme', ref: 'Esme_Iguana', look: 'iguana: cresta morada como orejas, ojos verdes, cuentas rojas' },
+  { name: 'Mayra', ref: 'Mayra_Iguana', look: 'iguana: negro y rojo oscuro, espinas rojas, clip amarillo, ojos cafés' },
+  { name: 'Carlitos', ref: 'Carlitos_Iguana', look: 'iguana: casi negra con manchas cafés, ojos azules, bombín café' },
+  { name: 'Tomás Zayapa', ref: 'Tomas_Cangrejo_v2', look: 'cangrejo zayapa rojo con lentes azules' },
+  { name: 'Piquero', ref: 'Piquero', look: 'piquero de patas azules' },
+  { name: 'Baúl Fragata', ref: 'Baul_Fragata_render', look: 'baúl con alas de fragata (“baúl piquero”)' },
+  { name: 'Baúl', ref: 'Baul_Cofre', look: 'el baúl (cofre)' },
+  { name: 'Lobo marino', ref: 'Lobo_Marino', look: '' },
+  { name: 'Pinzón', ref: 'Pinzon', look: '' },
+  { name: 'Iguana rosada', ref: 'Iguana_Rosada', look: 'iguana rosada con rayas negras' },
+  { name: 'Iguana amarilla', ref: 'Iguana_Amarilla_Lentes', look: 'iguana amarilla con lentes redondos azules' },
+];
+const sceneNotes = s => (/^PureRef:/.test(s.notes || '') ? '' : s.notes ?? ''); // la línea de la importación no es una nota
+const whereOf = (x, y) => `${x < 34 ? 'izquierda' : x > 66 ? 'derecha' : 'centro'}${y < 34 ? ', arriba' : y > 66 ? ', abajo' : ''}`;
+// Lista para elegir: el elenco del proyecto + los nombres ya usados en este tablero.
+function castList() {
+  const seen = new Map();
+  for (const c of [...(state.project?.id === BAUL ? CAST : []), ...state.shots.flatMap(s => s.characters)]) {
+    const k = c.name?.trim().toLowerCase(); if (k && !seen.has(k)) seen.set(k, c);
+  }
+  return [...seen.values()];
+}
+// Capa de marcas encima de la imagen, ajustada al área real del boceto (object-fit: contain + zoom).
+function placeTags(fig) {
+  const img = fig.querySelector(':scope > img'); if (!img) return;
+  const layer = fig.querySelector(':scope > .tags') || fig.appendChild(Object.assign(document.createElement('div'), { className: 'tags' }));
+  const s = state.open;
+  layer.innerHTML = s.characters.map((c, i) => c.x == null ? '' :
+    `<button class="tag" data-i="${i}" style="left:${c.x}%;top:${c.y}%" title="${esc([c.name, c.action].filter(Boolean).join(' · '))}">${esc(c.name || '?')}</button>`).join('');
+  layer.onclick = e => { const b = e.target.closest('.tag'); if (!b) return; e.stopPropagation(); tagPicker(e, null, null, +b.dataset.i); };
+  fig._fit = () => {
+    if (!img.naturalWidth) return;
+    const f = fig.getBoundingClientRect(), b = contentBox(img);
+    Object.assign(layer.style, { left: b.left - f.left + 'px', top: b.top - f.top + 'px', width: b.w + 'px', height: b.h + 'px' });
+  };
+  img.complete ? fig._fit() : img.addEventListener('load', fig._fit, { once: true });
+}
+function contentBox(img) {
+  const r = img.getBoundingClientRect(), k = Math.min(r.width / img.naturalWidth, r.height / img.naturalHeight);
+  const w = img.naturalWidth * k, h = img.naturalHeight * k;
+  return { left: r.left + (r.width - w) / 2, top: r.top + (r.height - h) / 2, w, h };
+}
+const refreshTags = () => document.querySelectorAll('#compare figure[data-t="sketch"]').forEach(placeTags);
+addEventListener('resize', () => document.querySelectorAll('#compare figure').forEach(f => f._fit?.()));
+function tagAt(img, e) {
+  const b = contentBox(img), x = (e.clientX - b.left) / b.w * 100, y = (e.clientY - b.top) / b.h * 100;
+  if (x < 0 || x > 100 || y < 0 || y > 100) return;
+  tagPicker(e, Math.round(x * 10) / 10, Math.round(y * 10) / 10, null);
+}
+// Menú con el elenco junto al toque. i = marca existente (cambiar / quitar); si no, x, y = marca nueva.
+function tagPicker(e, x, y, i) {
+  document.querySelector('.tag-pick')?.remove();
+  const s = state.open, cur = i != null ? s.characters[i] : null;
+  const box = document.createElement('div'); box.className = 'tag-pick';
+  box.innerHTML = `<b class="small">${cur ? esc(cur.name || '?') + ' → cambiar a' : '¿Quién es?'}</b>`
+    + castList().map(c => `<button class="ghost small ${cur?.name === c.name ? 'on' : ''}" data-n="${esc(c.name)}">${esc(c.name)}</button>`).join('')
+    + `<button class="ghost small" data-other="1">Otro…</button>`
+    + (cur ? `<button class="ghost small danger" data-rm="1">✕ Quitar marca</button>` : '');
+  document.body.appendChild(box);
+  const w = box.offsetWidth, h = box.offsetHeight;
+  Object.assign(box.style, { left: Math.max(8, Math.min(innerWidth - w - 8, e.clientX - w / 2)) + 'px', top: Math.max(8, Math.min(innerHeight - h - 8, e.clientY + 14)) + 'px' });
+  const close = () => { box.remove(); removeEventListener('pointerdown', outside, true); };
+  const outside = ev => { if (!box.contains(ev.target)) close(); };
+  setTimeout(() => addEventListener('pointerdown', outside, true));
+  box.onclick = ev => {
+    const t = ev.target.closest('button'); if (!t) return;
+    let name = t.dataset.n;
+    if (t.dataset.other) name = prompt('Nombre del personaje')?.trim();
+    close();
+    if (t.dataset.rm) return saveTag(i, null);
+    if (name) saveTag(i, name, x, y);
+  };
+}
+async function saveTag(i, name, x, y) {
+  const chars = structuredClone(state.open.characters);
+  if (name === null) { delete chars[i].x; delete chars[i].y; }
+  else {
+    const key = name.toLowerCase(), cast = castList().find(c => c.name.toLowerCase() === key);
+    // Una marca nueva con un nombre que ya está en la lista completa esa entrada (o la mueve) en vez de duplicarla.
+    let c = i != null ? chars[i] : chars.find(c => c.name?.toLowerCase() === key);
+    if (!c) chars.push(c = { name, where: '', look: '', action: '' });
+    const autoWhere = !c.where || (c.x != null && c.where === whereOf(c.x, c.y));
+    if (c.name?.toLowerCase() !== key) Object.assign(c, { name, look: '', ref: undefined });
+    c.name = name;
+    if (x != null) { c.x = x; c.y = y; }
+    if (autoWhere && c.x != null) c.where = whereOf(c.x, c.y);
+    if (!c.look && cast?.look) c.look = cast.look;
+    if (cast?.ref) c.ref = cast.ref; else delete c.ref;
+  }
+  await patchShot({ characters: chars });
+  renderChars(); renderBoard(); refreshTags();
+}
+const toggleTagging = () => {
+  state.tagging = !state.tagging;
+  if (state.tagging && !document.querySelector('#compare figure[data-t="sketch"]')) state.view = 'sketch';
+  if (state.tagging) toast('Toca a cada personaje en el boceto y elige quién es', 3500);
+  renderViewer();
+};
+$('#tag-mode').onclick = toggleTagging;
+$('#tag-mode2').onclick = () => { if (!state.tagging) toggleTagging(); $('#compare').scrollIntoView({ behavior: 'smooth' }); };
 $('#add-char').onclick = () => {
   const chars = [...state.open.characters, { name: '', where: '', look: '', action: '' }];
   patchShot({ characters: chars }).then(() => { renderChars(); $('#chars .char:last-child .name').focus(); });

@@ -10,10 +10,10 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="RefBoards">
-<link rel="stylesheet" href="style.css?v=202611091800">
+<link rel="stylesheet" href="style.css?v=202611101900">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="config.js?v=202611091800"></script>
+<script src="config.js?v=202611101900"></script>
 </head>
 <body>
 <div id="booting" class="login"><div class="login-box"><h1>NP+ RefBoards</h1><p id="boot-msg" class="muted">Cargando…</p></div></div>
@@ -124,6 +124,7 @@
         <label class="btn small ghost">+ Frames<input id="up-frames" type="file" accept="image/*" multiple hidden></label>
         <span class="grow"></span>
         <span id="render-meta" class="muted"></span>
+        <button id="tag-mode" class="ghost small" hidden title="Tocar a cada personaje en el boceto y elegir quién es">🏷 Personajes</button>
         <button id="draw-render" class="ghost small" hidden title="Dibujar encima y dejarlo como comentario">✎ Dibujar</button>
         <button id="vid-render" class="ghost small" hidden title="Elegir este render para hacer el video en Magnific">☆ Para video</button>
         <button id="swap-render" class="ghost small" hidden title="Cambiar de lugar boceto y render">⇄ Invertir</button>
@@ -133,11 +134,11 @@
     </section>
     <aside class="side">
       <div id="d-clip" class="d-clip" hidden><h3>Animatic <span id="d-clip-t" class="muted"></span></h3><video muted playsinline controls></video></div>
+      <h3>Qué pasa en este plano</h3>
+      <textarea id="d-notes" rows="4" placeholder="Acción, quién hace qué, a dónde miran, cámara, intención…"></textarea>
       <h3>Personajes <span class="muted">· quién es quién</span></h3>
       <div id="chars"></div>
-      <button id="add-char" class="ghost small">+ Personaje</button>
-      <h3>Notas</h3>
-      <textarea id="d-notes" rows="4" placeholder="Acción, cámara, intención…"></textarea>
+      <button id="add-char" class="ghost small">+ Personaje</button> <button id="tag-mode2" class="ghost small" title="Tocar a cada personaje en el boceto">🏷 Marcar en el boceto</button>
       <details><summary>Prompt</summary><textarea id="d-prompt" rows="6"></textarea></details>
       <h3>Comentarios</h3>
       <div id="comments" class="comments"></div>
@@ -150,6 +151,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611091800"></script>
+<script src="app.js?v=202611101900"></script>
 </body>
 </html>
