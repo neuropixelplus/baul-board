@@ -328,12 +328,12 @@ async function renderBoard() {
     const plan = (byT[anim.times[s.code]] || []).slice().sort((a, b) => (anim.at?.[a] ?? 0) - (anim.at?.[b] ?? 0)), same = plan.filter(c => c !== s.code);
     el.className = 'card' + (state.sel.has(s.id) ? ' sel' : '') + (isNew(s) ? ' new' : ''); el.dataset.id = s.id; el.draggable = true;
     el.innerHTML = `
-      <button class="del" title="Eliminar (va a la papelera)">✕</button>
+      <button class="del" title="Eliminar la tarjeta entera: boceto y renders (va a la papelera)">✕</button>
       <button class="use" title="Usar esta imagen como render de otro shot (elegir de la lista)">↪ render de…</button>
       <button class="mv" title="Mover en la secuencia: elegir después de qué tarjeta va">⇅ Mover</button>
       <div class="pair">
         <div class="ph s" title="Arrastra el boceto sobre otra tarjeta para usarlo como render de esa">${s.sketch_path ? `<img loading="lazy" draggable="false" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">${(s.kind || 'shot') !== 'shot' ? KIND_LABEL[s.kind] : /_color$/.test(s.code) ? 'color' : 'boceto'}</span></div>
-        <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}</span><button class="vstar ${r.id === s.video_render_id ? 'on' : ''}" title="★ Para video: este render va a Magnific video">★</button>` : ''}${imgTools(!!r, true)}</div>
+        <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}<button class="rdel" title="Quitar solo este render (el boceto queda; va a la papelera)">✕</button></span><button class="vstar ${r.id === s.video_render_id ? 'on' : ''}" title="★ Para video: este render va a Magnific video">★</button>` : ''}${imgTools(!!r, true)}</div>
       </div>
       <div class="meta">
         <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span>${anim.times[s.code] != null ? `<button class="tc" title="Ver en el animatic (tiempo · duración del plano)">▶ ${fmtT(anim.times[s.code])}${durs[s.code] ? ` · ${durs[s.code].toFixed(1)}s` : ''}</button>` : ''}<span class="code">${esc(s.code)}</span><span class="pill ${s.status}" title="${esc(approvedBy(s))}">${s.status}</span>
@@ -344,7 +344,7 @@ async function renderBoard() {
         <div class="who">${s.scene ? `<span class="chip scene" title="Escenario">📍 ${esc(s.scene)}</span>` : ''}${s.clips?.length ? `<span class="chip clip" title="Video de Magnific">🎬 ${esc(s.clips.at(-1).version)}${s.video_status ? ' · ' + s.video_status : ''}</span>` : ''}${s.characters.map(c => `<span class="chip" title="${esc([c.where, c.look, c.action].filter(Boolean).join(' · '))}">${esc(c.name)}${c.where ? ' · ' + esc(c.where) : ''}</span>`).join('')}</div>
       </div>`;
     wireTools(el.querySelector('.ph.r'), s, r?.id);
-    el.onclick = e => { if (e.target.closest('.kind, .tools')) return; if (e.ctrlKey || e.metaKey || e.shiftKey) return selectCard(s, e.shiftKey); if (e.target.closest('.vstar')) return toggleVideo(s, r.id); if (e.target.closest('.tc')) return seekAnim(s.code); if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); if (e.target.closest('.mv')) return pickTarget(s, 'move'); openShot(s); };
+    el.onclick = e => { if (e.target.closest('.kind, .tools')) return; if (e.ctrlKey || e.metaKey || e.shiftKey) return selectCard(s, e.shiftKey); if (e.target.closest('.vstar')) return toggleVideo(s, r.id); if (e.target.closest('.tc')) return seekAnim(s.code); if (e.target.closest('.rdel')) return deleteRender(s, r); if (e.target.closest('.del')) return deleteShot(s); if (e.target.closest('.use')) return pickTarget(s); if (e.target.closest('.mv')) return pickTarget(s, 'move'); openShot(s); };
     el.querySelector('.kind').onchange = e => setKind(s, e.target.value);
     dropTarget(el, files => uploadRenders(s, files));
     // Desde la franja de abajo (código): reordenar. Desde el render: se mueve solo ese render.

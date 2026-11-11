@@ -294,3 +294,10 @@ button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .tag-pick b { flex: 1 1 100%; }
 .tag-pick button.on { outline: 2px solid #e0457b; }
 @media (max-width: 700px) { .tags .tag { font-size: 13px; padding: 4px 10px; } .tag-pick button { padding: 8px 10px; } }
+
+/* ✕ dentro de la etiqueta de versión del render: quita solo ese render, el boceto queda. */
+.card .rdel { background: none; border: 0; color: #ddd; padding: 0 0 0 6px; margin: 0; font-size: 11px; line-height: 1; cursor: pointer; display: none; }
+.card:hover .rdel { display: inline; }
+.card .rdel:hover { color: var(--cambios); }
+@media (hover: none) { .card .rdel { display: inline; } }
+@media (max-width: 700px) { .card .rdel { display: none !important; } }
