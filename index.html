@@ -10,10 +10,10 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="RefBoards">
-<link rel="stylesheet" href="style.css?v=202611111600">
+<link rel="stylesheet" href="style.css?v=202611111800">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="config.js?v=202611111600"></script>
+<script src="config.js?v=202611111800"></script>
 </head>
 <body>
 <div id="booting" class="login"><div class="login-box"><h1>NP+ RefBoards</h1><p id="boot-msg" class="muted">Cargando…</p></div></div>
@@ -38,7 +38,7 @@
   <header class="top">
     <strong class="brand">NP+ RefBoards</strong>
     <select id="proj-select" aria-label="Proyecto"></select>
-    <button id="new-project" class="ghost small" title="Nuevo proyecto">+</button>
+    <button id="new-project" class="ghost" title="Crear un proyecto nuevo (con su EP1 · Parte 1)">+ Proyecto</button>
     <select id="ep-select" aria-label="Episodio"></select>
     <select id="board-select" aria-label="Parte"></select>
     <button id="new-board" class="ghost" title="Nueva parte en este episodio (0 = Refs)">+ Parte</button>
@@ -151,6 +151,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611111600"></script>
+<script src="app.js?v=202611111800"></script>
 </body>
 </html>
