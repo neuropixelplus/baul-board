@@ -8,6 +8,11 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const state = { me: null, projects: [], project: null, ep: 1, boards: [], board: null, shots: [], filter: 'todos', kinds: new Set(), open: null, view: null };
 const KIND_LABEL = { todos: 'Todo', shot: 'Shots', bg: 'BGs', asset: 'Assets', sheet: 'Sheets' };
 const KIND_ONE = { shot: 'Shot', bg: 'BG', asset: 'Asset', sheet: 'Sheet' };
+// Con/sin boceto en las tarjetas (botón de arriba), recordado por proyecto. Por defecto: sí en El Baúl de Darwin, no en los demás
+// (donde el boceto suele ser la misma imagen que el render).
+const sketchKey = () => 'sketch_' + (state.project?.slug || 'baul');
+const showSketch = () => { try { const v = localStorage.getItem(sketchKey()); if (v !== null) return v === '1'; } catch {} return !state.project || state.project.slug === 'baul'; };
+const paintSketchBtn = () => { const b = $('#sketch-toggle'); if (!b) return; const on = showSketch(); b.textContent = on ? 'Boceto: sí' : 'Boceto: no'; b.classList.toggle('on', on); };
 const urlCache = new Map(); // path -> {url, exp}
 
 // Confirmación dentro de la página: confirm()/prompt() nativos no aparecen en algunos navegadores integrados.
@@ -303,6 +308,7 @@ const latestRender = s => s.renders.find(r => r.id === s.approved_render_id) || 
 const shownRender = s => s.renders.find(r => r.id === s.video_render_id) || latestRender(s);
 
 async function renderBoard() {
+  paintSketchBtn();
   if (!seenData() && state.board) markSeen();
   const shots = state.shots.filter(s => (state.filter === 'todos' || (state.filter === 'video' ? s.video_render_id : state.filter === 'nuevo' ? isNew(s) : s.status === state.filter))
     && (!state.kinds.size || state.kinds.has(s.kind || 'shot')) && matches(s, state.q));
@@ -324,16 +330,16 @@ async function renderBoard() {
   for (const s of shots) {
     const r = shownRender(s);
     const open = s.comments.filter(c => !c.resolved).length;
-    const el = document.createElement('article');
+    const el = document.createElement('article'), sk = showSketch();
     const plan = (byT[anim.times[s.code]] || []).slice().sort((a, b) => (anim.at?.[a] ?? 0) - (anim.at?.[b] ?? 0)), same = plan.filter(c => c !== s.code);
     el.className = 'card' + (state.sel.has(s.id) ? ' sel' : '') + (isNew(s) ? ' new' : ''); el.dataset.id = s.id; el.draggable = true;
     el.innerHTML = `
       <button class="del" title="Eliminar la tarjeta entera: boceto y renders (va a la papelera)">✕</button>
       <button class="use" title="Usar esta imagen como render de otro shot (elegir de la lista)">↪ render de…</button>
       <button class="mv" title="Mover en la secuencia: elegir después de qué tarjeta va">⇅ Mover</button>
-      <div class="pair">
-        <div class="ph s" title="Arrastra el boceto sobre otra tarjeta para usarlo como render de esa">${s.sketch_path ? `<img loading="lazy" draggable="false" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">${(s.kind || 'shot') !== 'shot' ? KIND_LABEL[s.kind] : /_color$/.test(s.code) ? 'color' : 'boceto'}</span></div>
-        <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}<button class="rdel" title="Quitar solo este render (el boceto queda; va a la papelera)">✕</button></span><button class="vstar ${r.id === s.video_render_id ? 'on' : ''}" title="★ Para video: este render va a Magnific video">★</button>` : ''}${imgTools(!!r, true)}</div>
+      <div class="pair${sk ? '' : ' one'}">
+        ${sk ? `<div class="ph s" title="Arrastra el boceto sobre otra tarjeta para usarlo como render de esa">${s.sketch_path ? `<img loading="lazy" draggable="false" src="${url(s.sketch_path)}" alt="">` : 'sin boceto'}<span class="lbl">${(s.kind || 'shot') !== 'shot' ? KIND_LABEL[s.kind] : /_color$/.test(s.code) ? 'color' : 'boceto'}</span></div>` : ''}
+        <div class="ph r" ${r ? 'title="Arrastra el render a otra tarjeta (o a un espacio vacío) para moverlo solo a él"' : ''}>${r ? `<img loading="lazy" draggable="false" src="${url(r.path)}" alt="">` : (!sk && s.sketch_path) ? `<img loading="lazy" draggable="false" src="${url(s.sketch_path)}" alt=""><span class="lbl">boceto</span>` : 'sin render'}${r ? `<span class="lbl">${esc(r.version)}${r.id === s.approved_render_id ? ' ✓' : ''}<button class="rdel" title="Quitar solo este render (el boceto queda; va a la papelera)">✕</button></span><button class="vstar ${r.id === s.video_render_id ? 'on' : ''}" title="★ Para video: este render va a Magnific video">★</button>` : ''}${imgTools(!!r, true)}</div>
       </div>
       <div class="meta">
         <div class="row1"><span class="seq" title="Posición en la secuencia">${state.shots.indexOf(s) + 1}</span>${anim.times[s.code] != null ? `<button class="tc" title="Ver en el animatic (tiempo · duración del plano)">▶ ${fmtT(anim.times[s.code])}${durs[s.code] ? ` · ${durs[s.code].toFixed(1)}s` : ''}</button>` : ''}<span class="code">${esc(s.code)}</span><span class="pill ${s.status}" title="${esc(approvedBy(s))}">${s.status}</span>
@@ -803,6 +809,7 @@ const setCardW = w => { w = Math.max(160, Math.min(1200, Math.round(w))); docume
   $('#zoom').value = w; try { localStorage.setItem('cardW', w); } catch {} };
 try { const w = +localStorage.getItem('cardW'); if (w) setCardW(w); } catch {}
 $('#zoom').oninput = e => setCardW(+e.target.value);
+$('#sketch-toggle').onclick = () => { try { localStorage.setItem(sketchKey(), showSketch() ? '0' : '1'); } catch {} paintSketchBtn(); renderBoard(); };
 addEventListener('wheel', e => {
   if (!e.altKey || !$('#detail').hidden || !e.target.closest?.('#board')) return;
   e.preventDefault();

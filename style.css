@@ -48,9 +48,12 @@ textarea { width: 100%; resize: vertical; }
 @media (hover: none) { .card .del { opacity: 1; } }
 button.danger:hover { border-color: var(--cambios); color: var(--cambios); }
 .card.dragover { border-color: var(--accent); }
-.card .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: #111; }
-.card .pair .ph { aspect-ratio: 16/9; background: #18181a; display: grid; place-items: center; color: var(--muted); font-size: 12px; position: relative; }
-.card .pair img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; }
+.card .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: #111; align-items: start; }
+.card .pair.one { grid-template-columns: 1fr; }
+/* Sin recorte: cada imagen conserva su proporción (vertical, horizontal o cuadrada); el hueco vacío mantiene 16:9 */
+.card .pair .ph { min-height: 70px; background: #18181a; display: grid; place-items: center; color: var(--muted); font-size: 12px; position: relative; }
+.card .pair .ph:not(:has(img)) { aspect-ratio: 16/9; }
+.card .pair img { width: 100%; height: auto; max-height: 82vh; object-fit: contain; display: block; }
 .card .pair .lbl { position: absolute; left: 4px; top: 4px; font-size: 10px; background: #000a; padding: 1px 5px; border-radius: 4px; color: #ddd; }
 .card .meta { padding: 8px 10px; display: grid; gap: 4px; }
 .card .row1 { display: flex; gap: 8px; align-items: center; }

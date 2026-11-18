@@ -10,10 +10,10 @@
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="RefBoards">
-<link rel="stylesheet" href="style.css?v=202611111800">
+<link rel="stylesheet" href="style.css?v=202611181416">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="config.js?v=202611111800"></script>
+<script src="config.js?v=202611181416"></script>
 </head>
 <body>
 <div id="booting" class="login"><div class="login-box"><h1>NP+ RefBoards</h1><p id="boot-msg" class="muted">Cargando…</p></div></div>
@@ -62,6 +62,7 @@
     <span class="grow"></span>
     <input id="search" type="search" placeholder="Buscar código, personaje, nota…" aria-label="Buscar">
     <label class="zoom">Tamaño <input id="zoom" type="range" min="220" max="1200" value="360" title="También: Alt + rueda sobre el tablero"></label>
+    <button id="sketch-toggle" class="ghost" title="Mostrar u ocultar el boceto en las tarjetas (sin boceto, cada tarjeta muestra una sola imagen, completa)">Boceto: sí</button>
     <button id="export-picks" class="ghost" title="Bajar un .zip con los renders ★ de esta parte, numerados por secuencia, más lista.csv para el director">⇩ Exportar ★</button>
     <button id="trash" class="ghost" title="Shots y renders eliminados">Papelera</button>
     <label class="btn">+ Shots<input id="add-shots" type="file" accept="image/*" multiple hidden></label>
@@ -151,6 +152,6 @@
   </div>
 </div>
 <div id="toast" class="toast" hidden></div>
-<script src="app.js?v=202611111800"></script>
+<script src="app.js?v=202611181416"></script>
 </body>
 </html>
